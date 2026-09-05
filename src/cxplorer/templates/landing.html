@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}{{ app_name }} — Explore with confidence{% endblock %}
+{% block description %}A focused, secure workspace built for modern exploration.{% endblock %}
+
+{% block content %}
+  <section class="container hero">
+    <div class="hero-copy">
+      <div class="kicker">
+        <span class="status-dot"></span>
+        Secure by design
+      </div>
+      <h1 class="hero-title">
+        Find clarity in every
+        <span class="gradient-text">exploration.</span>
+      </h1>
+      <p class="hero-lead">
+        A focused workspace with a fast Python foundation, thoughtful interfaces, and identity
+        protected by Microsoft.
+      </p>
+      <div class="action-row">
+        <a
+          href="{% if user %}{{ url_for('dashboard') }}{% else %}{{ url_for('login_page') }}{% endif %}"
+          class="button button--primary"
+        >
+          {% if user %}Open your dashboard{% else %}Start with Microsoft{% endif %}
+          <svg aria-hidden="true" viewBox="0 0 20 20" class="icon icon--small" stroke-width="1.8">
+            <path d="M4 10h12m-5-5 5 5-5 5"></path>
+          </svg>
+        </a>
+        <a href="#foundation" class="button button--secondary">
+          Explore the foundation
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="preview-aura"></div>
+      <div class="preview-window">
+        <div class="preview-toolbar">
+          <span class="window-dot window-dot--red"></span>
+          <span class="window-dot window-dot--yellow"></span>
+          <span class="window-dot window-dot--green"></span>
+          <span class="window-title">CXplorer / workspace</span>
+        </div>
+        <div class="preview-content">
+          <div class="preview-card">
+            <div class="preview-heading">
+              <div>
+                <p class="overline">Your space</p>
+                <p class="preview-title">Ready to explore</p>
+              </div>
+              <span class="success-icon">
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="icon" stroke-width="1.8">
+                  <path d="m5 12 4 4L19 6"></path>
+                </svg>
+              </span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-value"></div>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <p class="metric-value">Fast</p>
+              <p class="metric-label">Async Python core</p>
+            </div>
+            <div class="metric-card">
+              <p class="metric-value">Private</p>
+              <p class="metric-label">Session boundaries</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="foundation" class="foundation-section">
+    <div class="container section-content">
+      <div class="section-intro">
+        <p class="section-kicker">A dependable foundation</p>
+        <h2 class="section-title">
+          Purposeful from the first request.
+        </h2>
+      </div>
+      <div class="feature-grid">
+        {% set features = [
+          ("01", "Clear boundaries", "Public experiences and authenticated workspaces are separated by explicit route groups."),
+          ("02", "Trusted identity", "OpenID Connect delegates credentials to Microsoft while the app retains only minimal identity claims."),
+          ("03", "Responsive by default", "Every view starts mobile-first and scales into calm, spacious desktop layouts.")
+        ] %}
+        {% for number, title, copy in features %}
+          <article class="feature-card">
+            <span class="feature-number">{{ number }}</span>
+            <h3 class="feature-title">{{ title }}</h3>
+            <p class="feature-copy">{{ copy }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

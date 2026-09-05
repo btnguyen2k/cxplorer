@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — {{ app_name }}{% endblock %}
+{% block description %}Your private CXplorer workspace.{% endblock %}
+
+{% block content %}
+  <section class="container dashboard">
+    <div class="dashboard-header">
+      <div class="identity-heading">
+        <span class="avatar">
+          {{ user.display_name[:1] | upper }}
+        </span>
+        <div>
+          <p class="eyebrow-text">Welcome back</p>
+          <h1 class="page-title">{{ user.display_name }}</h1>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="button button--secondary logout-button">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="icon icon--small" stroke-width="1.8">
+            <path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"></path>
+          </svg>
+          Sign out
+        </button>
+      </form>
+    </div>
+
+    <div class="dashboard-grid">
+      <article class="workspace-card">
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">Private workspace</p>
+            <h2 class="workspace-title">Your foundation is ready.</h2>
+          </div>
+          <span class="authenticated-badge">
+            Authenticated
+          </span>
+        </div>
+        <p class="workspace-copy">
+          Build private product experiences here. Every page and endpoint in this area must
+          preserve the authenticated session boundary.
+        </p>
+        <div class="stack-grid">
+          <div class="stack-item">
+            <p class="stack-label">Backend</p>
+            <p class="stack-value">FastAPI</p>
+          </div>
+          <div class="stack-item">
+            <p class="stack-label">Interface</p>
+            <p class="stack-value">HTML + CSS</p>
+          </div>
+          <div class="stack-item">
+            <p class="stack-label">Identity</p>
+            <p class="stack-value">Microsoft OIDC</p>
+          </div>
+        </div>
+      </article>
+
+      <aside class="profile-card">
+        <p class="profile-title">Session identity</p>
+        <dl class="definition-list">
+          <div>
+            <dt>Display name</dt>
+            <dd>{{ user.display_name }}</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd>{{ user.email or "Not provided" }}</dd>
+          </div>
+          <div>
+            <dt>Provider</dt>
+            <dd class="provider-value">
+              <span class="provider-status"></span>
+              {{ user.provider }}
+            </dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+{% endblock %}
