@@ -5,6 +5,8 @@ HTML/CSS/JavaScript. Keep public routes in `src/cxplorer/routers/public.py`, aut
 `src/cxplorer/routers/authentication.py`, and authenticated routes in
 `src/cxplorer/routers/private.py`.
 
+- Always use `Contoso` as the fictional company name in UI previews, examples, fixtures, tests,
+  and documentation.
 - Treat every new route as private unless its public purpose is explicit.
 - Use `require_user` for private APIs and redirect unauthenticated private pages to `/login`.
 - Never persist OAuth access tokens, ID tokens, client secrets, or session secrets.

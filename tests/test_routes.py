@@ -1,8 +1,60 @@
 """Public and private route behavior tests."""
 
-from fastapi.testclient import TestClient
+from html.parser import HTMLParser
+from urllib.parse import parse_qs, urlsplit
 
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
+
+from cxplorer.config import Settings
+from cxplorer.main import create_app
 from tests.conftest import TEST_CSRF_TOKEN
+
+
+class RenderedPage(HTMLParser):
+    """Collect copy, accessible labels, and links without counting URLs as page copy."""
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.copy: list[str] = []
+        self.elements: list[tuple[str, dict[str, str | None]]] = []
+        self.links: list[dict[str, str]] = []
+        self._active_link: dict[str, str] | None = None
+        self.feed(html)
+        self.close()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        self.elements.append((tag, attributes))
+        self.copy.extend(
+            value
+            for name, value in attrs
+            if name in {"aria-label", "aria-description", "alt", "title"} and value
+        )
+        if tag == "meta" and attributes.get("name") == "description":
+            self.copy.append(attributes.get("content") or "")
+        if tag == "a":
+            self._active_link = {
+                "href": attributes.get("href") or "",
+                "class": attributes.get("class") or "",
+                "aria-describedby": attributes.get("aria-describedby") or "",
+                "text": "",
+            }
+            self.links.append(self._active_link)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a":
+            self._active_link = None
+
+    def handle_data(self, data: str) -> None:
+        self.copy.append(data)
+        if self._active_link is not None:
+            self._active_link["text"] += data
+
+    @property
+    def text(self) -> str:
+        return " ".join(" ".join(self.copy).split())
 
 
 def test_public_routes_are_available(client: TestClient) -> None:
@@ -11,11 +63,209 @@ def test_public_routes_are_available(client: TestClient) -> None:
     health = client.get("/api/health")
 
     assert landing.status_code == 200
-    assert "Explore with confidence" in landing.text
+    assert "Walk in already" in landing.text
     assert login.status_code == 200
     assert "Microsoft sign-in unavailable" in login.text
+    assert "Continue with the Microsoft account connected to your workspace." in login.text
+    assert "OpenID Connect verification" in login.text
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_landing_page_focuses_on_business_outcomes(client: TestClient, signed_in: bool) -> None:
+    if signed_in:
+        assert client.post("/_test/sign-in").status_code == 204
+
+    response = client.get("/")
+    assert response.status_code == 200
+    page = RenderedPage(response.text)
+
+    assert [tag for tag, _ in page.elements].count("h1") == 1
+    for copy in (
+        "CXplorer",
+        "Built for technical sellers",
+        "Walk in already understanding their business.",
+        "A relevant conversation for every room.",
+        "web address",
+        "what the business is trying to win",
+        "what each executive is accountable for",
+        "where AI belongs on their agenda",
+        "CEO",
+        "CTO",
+        "CIO",
+        "CFO",
+        "Security leadership",
+        "Growth agenda",
+        "Return on spend",
+        "Risk & resilience",
+        "Where the AI conversation starts",
+        "Read the business",
+        "Map the room",
+        "Make AI concrete",
+        "Bring the business conversation, not the product tour.",
+    ):
+        assert copy in page.text
+
+    assert "Prepared for the CEO" not in page.text
+
+    for technical_marketing in (
+        "microsoft",
+        "openid",
+        "oidc",
+        "oauth",
+        "secure by design",
+        "secure workspace",
+        "fastapi",
+        "python",
+        "framework",
+        "server-rendered",
+        "ssr",
+        "html",
+        "css",
+        "foundation",
+        "session boundaries",
+        "route groups",
+        "trusted identity",
+        "responsive by default",
+    ):
+        assert technical_marketing not in page.text.casefold()
+
+
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_landing_states_that_insights_are_not_generated_yet(
+    client: TestClient, signed_in: bool
+) -> None:
+    if signed_in:
+        assert client.post("/_test/sign-in").status_code == 204
+
+    response = client.get("/")
+    page = RenderedPage(response.text)
+
+    assert "Insight generation is not available yet." in page.text
+    assert "An illustrative brief showing what CXplorer is being built to produce." in page.text
+
+    captions = [
+        attributes
+        for tag, attributes in page.elements
+        if tag == "figcaption" and attributes.get("id") == "lp-availability"
+    ]
+    assert len(captions) == 1
+
+    # Every call to action points at the availability note instead of promising a report.
+    actions = [link for link in page.links if "lp-cta" in link["class"].split()]
+    assert actions
+    assert all(link["aria-describedby"] == "lp-availability" for link in actions)
+
+
+@pytest.mark.parametrize(
+    ("signed_in", "action_label", "nav_label", "destination"),
+    [
+        (False, "Sign in to CXplorer", "Sign in", "/login"),
+        (True, "Open your workspace", "Dashboard", "/dashboard"),
+    ],
+)
+def test_landing_actions_use_existing_destinations(
+    client: TestClient,
+    signed_in: bool,
+    action_label: str,
+    nav_label: str,
+    destination: str,
+) -> None:
+    if signed_in:
+        assert client.post("/_test/sign-in").status_code == 204
+
+    response = client.get("/")
+    page = RenderedPage(response.text)
+    expected_url = f"http://testserver{destination}"
+
+    actions = [link for link in page.links if "lp-cta" in link["class"].split()]
+    assert actions
+    for link in actions:
+        assert link["href"] == expected_url
+        assert " ".join(link["text"].split()) == action_label
+
+    navigation = [link for link in page.links if "nav-link" in link["class"].split()]
+    assert len(navigation) == 1
+    assert navigation[0]["href"] == expected_url
+    assert " ".join(navigation[0]["text"].split()) == nav_label
+
+    # Nothing links to an insights route that does not exist yet.
+    ids = {attributes["id"] for _, attributes in page.elements if "id" in attributes}
+    for link in page.links:
+        if link["href"].startswith("#"):
+            assert link["href"][1:] in ids
+        else:
+            assert link["href"] in {"http://testserver/", expected_url}
+    assert client.get(expected_url).status_code == 200
+
+    assert "script-src 'self'; style-src 'self'" in response.headers["content-security-policy"]
+    assert "unsafe-inline" not in response.headers["content-security-policy"]
+
+
+def test_landing_preview_is_labelled_and_inert(client: TestClient) -> None:
+    page = RenderedPage(client.get("/").text)
+
+    assert "Contoso" in page.text
+    figures = [attributes for tag, attributes in page.elements if tag == "figure"]
+    assert len(figures) == 1
+    assert any(
+        tag == "figcaption" and attributes.get("id") == "lp-availability"
+        for tag, attributes in page.elements
+    )
+    for talking_point in (
+        "Which services could we sell next year that we cannot staff for today?",
+        "What would an AI-assisted service look like to a customer?",
+        "Which day-to-day work should stop being manual first?",
+        "What proves the payback before the budget is committed?",
+        "What has to be true for AI adoption to be defensible?",
+    ):
+        assert talking_point in page.text
+
+    # The preview illustrates the product; it must not pose as a working generator.
+    assert not {"form", "input", "button", "select", "textarea"} & {tag for tag, _ in page.elements}
+    assert not any(
+        attributes.get("role") in {"button", "tab", "textbox", "combobox"}
+        for _, attributes in page.elements
+    )
+    assert all(
+        attributes.get("aria-hidden") == "true" for tag, attributes in page.elements if tag == "svg"
+    )
+    assert not {"script", "style"} & {tag for tag, _ in page.elements}
+    assert not any(
+        name == "style" or name.startswith("on")
+        for _, attributes in page.elements
+        for name in attributes
+    )
+
+
+def test_login_page_keeps_the_shared_dark_chrome(client: TestClient) -> None:
+    page = RenderedPage(client.get("/login").text)
+
+    theme_colors = [
+        attributes.get("content")
+        for tag, attributes in page.elements
+        if tag == "meta" and attributes.get("name") == "theme-color"
+    ]
+    assert theme_colors == ["#020617"]
+
+
+def test_configured_login_keeps_its_provider_action(settings: Settings) -> None:
+    configured_settings = settings.model_copy(
+        update={"ms_client_id": "test-client", "ms_client_secret": SecretStr("test-secret")}
+    )
+    with TestClient(create_app(configured_settings)) as client:
+        response = client.get("/login", params={"next": "/dashboard"})
+
+    assert response.status_code == 200
+    page = RenderedPage(response.text)
+    assert "Continue with the Microsoft account connected to your workspace." in page.text
+    provider_links = [link for link in page.links if "button--primary" in link["class"].split()]
+    assert len(provider_links) == 1
+    assert " ".join(provider_links[0]["text"].split()) == "Continue with Microsoft"
+    provider_url = urlsplit(provider_links[0]["href"])
+    assert provider_url.path == "/auth/microsoft/login"
+    assert parse_qs(provider_url.query) == {"next": ["/dashboard"]}
 
 
 def test_security_headers_are_added(client: TestClient) -> None:
