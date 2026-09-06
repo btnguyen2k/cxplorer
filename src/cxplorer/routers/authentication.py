@@ -18,7 +18,7 @@ from cxplorer.auth.dependencies import (
 )
 from cxplorer.auth.models import AuthenticatedUser, AuthenticationClaimsError
 from cxplorer.auth.redirects import safe_local_path
-from cxplorer.config import Settings
+from cxplorer.config import IdentityVendorSettings
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,8 @@ async def microsoft_login(
     next_path: Annotated[str | None, Query(alias="next")] = None,
 ) -> RedirectResponse:
     """Start Microsoft OpenID Connect authorization."""
-    settings: Settings = request.app.state.settings
-    if not settings.microsoft_auth_enabled:
+    identity_settings: IdentityVendorSettings = request.app.state.identity_settings
+    if not identity_settings.microsoft_auth_enabled:
         return _login_error_response(request, "not_configured")
 
     request.session[POST_AUTH_REDIRECT_KEY] = safe_local_path(next_path)
@@ -64,8 +64,8 @@ async def microsoft_login(
 @router.get("/microsoft/callback", name="microsoft_callback")
 async def microsoft_callback(request: Request) -> RedirectResponse:
     """Validate Microsoft's callback and establish the local session."""
-    settings: Settings = request.app.state.settings
-    if not settings.microsoft_auth_enabled:
+    identity_settings: IdentityVendorSettings = request.app.state.identity_settings
+    if not identity_settings.microsoft_auth_enabled:
         return _login_error_response(request, "not_configured")
 
     client = _microsoft_client(request)

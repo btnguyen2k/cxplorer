@@ -224,21 +224,27 @@ or deployment IDs, quotas, data handling, and supported parameters before implem
 
 ## 6. Configuration contract
 
-All variables and files in this section are proposed for implementation, not currently supported
-by the application. Supply documented `.example` files when implementing the loaders.
+The AI-specific variables and files in this section are proposed for implementation, not currently
+supported by the application. The application and identity settings files already exist; their
+current loading behavior is documented in README.md. Supply documented `.example` files when
+implementing the AI loaders.
 
 ### File responsibilities and loading
 
 | File                    | Responsibility                                                                            | Repository policy                                        |
 |-------------------------|-------------------------------------------------------------------------------------------|----------------------------------------------------------|
-| `.env`                  | Existing application/auth settings; AI feature flag and optional configuration-file paths | Local/deployment secrets only                            |
+| `app_config.env`        | Shared application defaults; proposed AI feature flag and configuration-file paths       | Commit public defaults with inline documentation only    |
+| `app_config.local.env`  | Private application/session settings and deployment overrides                              | Ignore; never commit secrets or private deployment data  |
+| `id_vendor.env`         | Shared external identity-provider defaults                                                | Commit public defaults with inline documentation only    |
+| `id_vendor.local.env`   | Private identity-provider credentials and deployment overrides                             | Ignore; never commit credentials or private identifiers  |
 | `ai_vendor.env`         | Vendor adapters, endpoints, credentials, transport and concurrency settings               | Ignore; never commit populated credentials               |
 | `ai_tasks.env`          | Task-to-vendor/model routing, generation settings, workflow limits                        | Ignore local deployment values; no credentials permitted |
 | `ai_vendor.env.example` | Documented vendor configuration with placeholders                                         | Commit when implementing                                 |
 | `ai_tasks.env.example`  | Documented routing and workflow defaults                                                  | Commit when implementing                                 |
 
 Add explicit ignore rules for `ai_vendor.env` and `ai_tasks.env` before creating live files.
-The current `.gitignore` rule for `.env` does not cover these filenames.
+The current ignore rules for `app_config.local.env` and `id_vendor.local.env` do not cover these
+AI-specific filenames.
 Production should provide `ai_vendor.env` through an access-restricted secret mount or deployment
 secret delivery mechanism, not through a tracked file or image layer.
 
@@ -250,8 +256,9 @@ The application-level settings will be:
 | `AI_VENDOR_CONFIG_FILE` | Path, `ai_vendor.env` | Vendor file; relative paths resolve from the configured application root                   |
 | `AI_TASK_CONFIG_FILE`   | Path, `ai_tasks.env`  | Task file; same resolution rule for web and worker processes                               |
 
-Load each file separately using standard UTF-8 dotenv syntax and validate into typed configuration
-objects. Do not evaluate shell commands or mix vendor secrets into task prompts.
+For the proposed AI configuration, load each file separately using standard UTF-8 dotenv syntax
+and validate into typed configuration objects. Do not evaluate shell commands or mix vendor
+secrets into task prompts.
 For recognized fields, precedence is process environment, then the designated file, then a
 documented default. Do not require the current working directory to happen to be the repository root.
 

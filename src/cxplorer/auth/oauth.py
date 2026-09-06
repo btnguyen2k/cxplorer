@@ -2,10 +2,10 @@
 
 from authlib.integrations.starlette_client import OAuth
 
-from cxplorer.config import Settings
+from cxplorer.config import IdentityVendorSettings
 
 
-def build_oauth(settings: Settings) -> OAuth:
+def build_oauth(settings: IdentityVendorSettings) -> OAuth:
     """Register configured external identity providers."""
     oauth = OAuth()
     if settings.microsoft_auth_enabled:

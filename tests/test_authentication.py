@@ -6,7 +6,8 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 
-from cxplorer.config import Settings
+from cxplorer.auth.models import AuthenticatedUser
+from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
 
 
@@ -47,19 +48,16 @@ class FakeOAuth:
         return self.client if name == "microsoft" else None
 
 
-def microsoft_settings() -> Settings:
-    return Settings(
+def microsoft_settings() -> IdentityVendorSettings:
+    return IdentityVendorSettings(
         _env_file=None,
-        environment="test",
-        session_secret="test-session-secret-with-at-least-32-characters",
-        session_cookie_secure=False,
-        allowed_hosts=["testserver"],
         ms_client_id="client-id",
         ms_client_secret="client-secret",
+        ms_tenant="common",
     )
 
 
-def test_microsoft_callback_establishes_minimal_session() -> None:
+def test_microsoft_callback_establishes_minimal_session(app_settings: AppSettings) -> None:
     oauth_client = FakeMicrosoftClient(
         {
             "sub": "microsoft-subject",
@@ -67,7 +65,7 @@ def test_microsoft_callback_establishes_minimal_session() -> None:
             "preferred_username": "grace@example.com",
         }
     )
-    app = create_app(microsoft_settings())
+    app = create_app(app_settings, microsoft_settings())
     app.state.oauth = FakeOAuth(oauth_client)
 
     @app.get("/_test/session", include_in_schema=False)
@@ -96,8 +94,8 @@ def test_microsoft_callback_establishes_minimal_session() -> None:
     assert current_user.json()["subject"] == "microsoft-subject"
 
 
-def test_microsoft_callback_rejects_incomplete_identity() -> None:
-    app = create_app(microsoft_settings())
+def test_microsoft_callback_rejects_incomplete_identity(app_settings: AppSettings) -> None:
+    app = create_app(app_settings, microsoft_settings())
     app.state.oauth = FakeOAuth(FakeMicrosoftClient({"name": "Missing Subject"}))
 
     with TestClient(app) as client:
@@ -107,3 +105,37 @@ def test_microsoft_callback_rejects_incomplete_identity() -> None:
     assert response.status_code == 303
     assert response.headers["location"].endswith("/login?error=invalid_identity")
     assert current_user.status_code == 401
+
+
+def test_default_sign_in_opens_the_draft_workspace(app_settings: AppSettings) -> None:
+    app = create_app(app_settings, microsoft_settings())
+    app.state.oauth = FakeOAuth(
+        FakeMicrosoftClient(
+            {
+                "sub": "contoso-seller",
+                "name": "Contoso seller",
+                "email": "seller@contoso.example",
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        login = client.get("/auth/microsoft/login", follow_redirects=False)
+        callback = client.get("/auth/microsoft/callback", follow_redirects=False)
+        workspace = client.get(callback.headers["location"])
+
+    assert login.status_code == 307
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/dashboard"
+    assert workspace.status_code == 200
+    assert "Workspace" in workspace.text
+    assert "Contoso seller" in workspace.text
+    assert "draft" in workspace.text.casefold()
+
+
+def test_identity_without_a_display_name_uses_a_neutral_fallback() -> None:
+    user = AuthenticatedUser.from_microsoft_claims({"sub": "contoso-seller"})
+
+    assert user.display_name == "CXplorer user"
+    assert user.provider == "microsoft"
+    assert user.email is None

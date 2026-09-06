@@ -1,84 +1,106 @@
 {% extends "base.html" %}
 
-{% block title %}Sign in — {{ app_name }}{% endblock %}
-{% block description %}Sign in securely to your CXplorer workspace with Microsoft.{% endblock %}
+{% block title %}{% if user %}Open workspace{% else %}Sign in{% endif %} — {{ app_name }}{% endblock %}
+{% block description %}Sign in to your CXplorer workspace with an existing account. No separate password to create.{% endblock %}
+{% block html_class %}application-root{% endblock %}
+{% block body_class %}application-page{% endblock %}
 
 {% block content %}
-  <section class="container auth-page">
-    <div class="auth-card">
-      <div class="auth-aside">
-        <div>
-          <span class="badge">Protected workspace</span>
-          <p class="auth-aside-title">
-            Welcome back to your next discovery.
-          </p>
-          <p class="auth-aside-copy">
-            Your password stays with Microsoft. CXplorer receives only the identity details
-            required to establish your session.
-          </p>
-        </div>
-        <div class="auth-security">
-          <span class="security-icon">
-            <svg aria-hidden="true" viewBox="0 0 24 24" class="icon icon--small" stroke-width="2">
-              <path d="M12 3 5 6v5c0 4.6 2.9 8.2 7 10 4.1-1.8 7-5.4 7-10V6l-7-3Z"></path>
-              <path d="m9 12 2 2 4-4"></path>
-            </svg>
-          </span>
-          OpenID Connect verification
-        </div>
-      </div>
+  <section class="container sign-in" aria-labelledby="signin-title">
+    <div class="signin-grid">
+      <div class="signin-main">
+        <p class="section-kicker">Your next customer conversation</p>
+        <h1 id="signin-title" class="page-title">
+          {% if user %}Your workspace is ready.{% else %}Sign in to your workspace.{% endif %}
+        </h1>
 
-      <div class="auth-main">
-        <p class="auth-mobile-kicker">Protected workspace</p>
-        <h1 class="auth-title">Sign in to {{ app_name }}</h1>
-        <p class="auth-copy">
-          Continue with the Microsoft account connected to your workspace.
-        </p>
-
-        {% if error_message %}
-          <div role="alert" class="alert alert--error">
-            {{ error_message }}
+        {% if user %}
+          <p class="page-lead">
+            You&rsquo;re already signed in. Open your draft workspace to prepare a set of
+            company URLs.
+          </p>
+          <div class="signin-identity">
+            <p class="identity-caption">Signed in as</p>
+            <p class="identity-name">{{ user.display_name }}</p>
+            {% if user.email %}
+              <p class="identity-email">{{ user.email }}</p>
+            {% endif %}
           </div>
-        {% endif %}
-
-        <div class="auth-action">
-          {% if user %}
+          <div class="signin-actions">
             <a href="{{ url_for('dashboard') }}" class="button button--primary button--full">
-              Continue to your dashboard
-            </a>
-          {% elif microsoft_enabled %}
-            <a href="{{ microsoft_login_url }}" class="button button--primary button--full">
-              <svg aria-hidden="true" viewBox="0 0 24 24" class="microsoft-logo">
-                <path fill="#f25022" d="M2 2h9v9H2z"></path>
-                <path fill="#7fba00" d="M13 2h9v9h-9z"></path>
-                <path fill="#00a4ef" d="M2 13h9v9H2z"></path>
-                <path fill="#ffb900" d="M13 13h9v9h-9z"></path>
+              <span>Open workspace</span>
+              <svg aria-hidden="true" viewBox="0 0 20 20" class="icon icon--small" stroke-width="1.8">
+                <path d="M3 10h13m-5.5-5.5L16 10l-5.5 5.5"></path>
               </svg>
-              Continue with Microsoft
             </a>
-          {% else %}
-            <button
-              type="button"
-              disabled
-              class="button button--disabled button--full"
-            >
-              Microsoft sign-in unavailable
-            </button>
-            <p class="form-hint">
-              Add the Microsoft client ID and secret to this environment to enable sign-in.
+          </div>
+        {% else %}
+          <p class="page-lead">
+            Use an existing account. No separate {{ app_name }} password.
+          </p>
+
+          {% if error_message %}
+            <div role="alert" class="alert alert--error">
+              <p class="notice-title">Sign-in couldn&rsquo;t be completed</p>
+              <p>{{ error_message }}</p>
+            </div>
+          {% endif %}
+
+          {% set available_providers = login_providers | selectattr("enabled") | list %}
+          {% if not available_providers %}
+            <div role="status" class="signin-notice">
+              <p class="notice-title">Sign-in is currently unavailable.</p>
+              <p>Please contact the administrator to enable account sign-in.</p>
+            </div>
+          {% endif %}
+
+          <div class="signin-actions">
+            {% for provider in login_providers %}
+              {% if provider.enabled %}
+                <a
+                  href="{{ provider.url }}"
+                  class="button button--primary button--full"
+                  aria-describedby="signin-provider-note"
+                >
+                  <span>Continue with {{ provider.name }}</span>
+                  <svg aria-hidden="true" viewBox="0 0 20 20" class="icon icon--small" stroke-width="1.8">
+                    <path d="M3 10h13m-5.5-5.5L16 10l-5.5 5.5"></path>
+                  </svg>
+                </a>
+              {% else %}
+                <button type="button" disabled class="button button--disabled button--full">
+                  <span>
+                    Continue with {{ provider.name }}
+                    <span class="provider-availability">Unavailable</span>
+                  </span>
+                </button>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          {% if available_providers %}
+            <p id="signin-provider-note" class="signin-account-note">
+              Your account provider handles sign-in. You&rsquo;ll return here afterwards.
             </p>
           {% endif %}
-        </div>
-
-        <div class="auth-consent">
-          <svg aria-hidden="true" viewBox="0 0 24 24" class="icon icon--small" stroke-width="1.8">
-            <path d="M12 3 5 6v5c0 4.6 2.9 8.2 7 10 4.1-1.8 7-5.4 7-10V6l-7-3Z"></path>
-          </svg>
-          <span>
-            By continuing, you authorize Microsoft to share your basic profile with {{ app_name }}.
-          </span>
-        </div>
+        {% endif %}
       </div>
+
+      <aside class="signin-aside" aria-labelledby="signin-next-title">
+        <p class="section-kicker">Inside your workspace</p>
+        <h2 id="signin-next-title" class="section-title">Start with the company&rsquo;s own words.</h2>
+        <p>
+          Bring a homepage, an About page and a Products or Services page.
+          A few substantive sources lay the groundwork for a more relevant conversation.
+        </p>
+        <div class="signin-preview" role="note" aria-labelledby="signin-preview-label">
+          <p id="signin-preview-label" class="badge">Draft preview</p>
+          <p>
+            Explore the company URL inputs after sign-in. URLs aren&rsquo;t saved and no pages
+            are fetched. Insight generation is not available yet.
+          </p>
+        </div>
+      </aside>
     </div>
   </section>
 {% endblock %}

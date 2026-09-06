@@ -1,81 +1,243 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard — {{ app_name }}{% endblock %}
-{% block description %}Your private CXplorer workspace.{% endblock %}
+{% block title %}Workspace — {{ app_name }}{% endblock %}
+{% block description %}Prepare public company URLs in your draft CXplorer workspace. Sources are not saved or fetched in this preview.{% endblock %}
+{% block html_class %}application-root{% endblock %}
+{% block body_class %}application-page{% endblock %}
 
 {% block content %}
-  <section class="container dashboard">
-    <div class="dashboard-header">
-      <div class="identity-heading">
-        <span class="avatar">
-          {{ user.display_name[:1] | upper }}
-        </span>
-        <div>
-          <p class="eyebrow-text">Welcome back</p>
-          <h1 class="page-title">{{ user.display_name }}</h1>
-        </div>
+  <section class="container workspace" aria-labelledby="workspace-title">
+    <header class="workspace-header">
+      <div>
+        <p class="section-kicker">Preparation starts here</p>
+        <h1 id="workspace-title" class="page-title">Workspace</h1>
+        <p class="page-lead">Start with the company you want to understand.</p>
       </div>
-      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit" class="button button--secondary logout-button">
-          <svg aria-hidden="true" viewBox="0 0 24 24" class="icon icon--small" stroke-width="1.8">
-            <path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9"></path>
-          </svg>
-          Sign out
-        </button>
-      </form>
+      <div class="workspace-account">
+        <div class="workspace-identity">
+          <p class="identity-caption">Signed in as</p>
+          <p class="identity-name">{{ user.display_name }}</p>
+          {% if user.email %}
+            <p class="identity-email">{{ user.email }}</p>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="button button--secondary logout-button">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </header>
+
+    <div class="draft-notice" role="note" aria-labelledby="draft-label">
+      <p id="draft-label" class="badge">Draft preview</p>
+      <p id="draft-status">
+        <strong>URLs aren&rsquo;t saved. No pages are fetched.</strong>
+        Insight generation is not available yet; this is an input preview.
+      </p>
     </div>
 
-    <div class="dashboard-grid">
-      <article class="workspace-card">
-        <div class="card-heading">
-          <div>
-            <p class="section-kicker">Private workspace</p>
-            <h2 class="workspace-title">Your foundation is ready.</h2>
-          </div>
-          <span class="authenticated-badge">
-            Authenticated
-          </span>
-        </div>
-        <p class="workspace-copy">
-          Build private product experiences here. Every page and endpoint in this area must
-          preserve the authenticated session boundary.
+    <div class="workspace-grid">
+      <section class="source-editor" aria-labelledby="sources-title">
+        <h2 id="sources-title" class="section-title">Choose your company sources.</h2>
+        <p id="source-limit" class="source-intro">
+          One official company homepage is required.
+          <strong>Three to six URLs recommended; six total maximum.</strong>
         </p>
-        <div class="stack-grid">
-          <div class="stack-item">
-            <p class="stack-label">Backend</p>
-            <p class="stack-value">FastAPI</p>
-          </div>
-          <div class="stack-item">
-            <p class="stack-label">Interface</p>
-            <p class="stack-value">HTML + CSS</p>
-          </div>
-          <div class="stack-item">
-            <p class="stack-label">Identity</p>
-            <p class="stack-value">Microsoft OIDC</p>
-          </div>
-        </div>
-      </article>
+        <p id="source-eligibility" class="source-policy">
+          Use public HTTPS HTML pages or text-based PDFs only. No authenticated sources,
+          personal executive profiles, LinkedIn-login pages or paywalled databases.
+        </p>
 
-      <aside class="profile-card">
-        <p class="profile-title">Session identity</p>
-        <dl class="definition-list">
-          <div>
-            <dt>Display name</dt>
-            <dd>{{ user.display_name }}</dd>
+        {# Deliberately not a form: draft URLs must never be submitted, including on Enter. #}
+        <fieldset class="source-group" aria-describedby="source-limit source-eligibility draft-status">
+          <legend class="source-legend">Core company pages</legend>
+
+          <div class="source-field">
+            <div class="source-label-line">
+              <label for="company-homepage">Official company homepage</label>
+              <span id="homepage-priority" class="source-priority source-priority--required">Required</span>
+            </div>
+            <p id="homepage-help" class="field-help">
+              Establishes the company&rsquo;s identity, positioning and main offerings.
+            </p>
+            <input
+              id="company-homepage"
+              type="url"
+              required
+              class="source-input"
+              placeholder="https://contoso.example"
+              aria-describedby="homepage-priority homepage-help source-eligibility"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              inputmode="url"
+              enterkeyhint="next"
+            >
           </div>
-          <div>
-            <dt>Account</dt>
-            <dd>{{ user.email or "Not provided" }}</dd>
+
+          <div class="source-field">
+            <div class="source-label-line">
+              <label for="company-about">About / Company / Who We Are</label>
+              <span id="about-priority" class="source-priority">Strongly recommended</span>
+            </div>
+            <p id="about-help" class="field-help">
+              Explains the business model, footprint and customers it serves.
+            </p>
+            <input
+              id="company-about"
+              type="url"
+              class="source-input"
+              placeholder="https://contoso.example/about"
+              aria-describedby="about-priority about-help"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              inputmode="url"
+              enterkeyhint="next"
+            >
           </div>
-          <div>
-            <dt>Provider</dt>
-            <dd class="provider-value">
-              <span class="provider-status"></span>
-              {{ user.provider }}
-            </dd>
+
+          <div class="source-field">
+            <div class="source-label-line">
+              <label for="company-products">Products / Services / Solutions</label>
+              <span id="products-priority" class="source-priority">Strongly recommended</span>
+            </div>
+            <p id="products-help" class="field-help">
+              Shows what the company sells and which customer workflows create value.
+            </p>
+            <input
+              id="company-products"
+              type="url"
+              class="source-input"
+              placeholder="https://contoso.example/products"
+              aria-describedby="products-priority products-help"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              inputmode="url"
+              enterkeyhint="done"
+            >
           </div>
-        </dl>
+        </fieldset>
+
+        <details class="source-extras">
+          <summary>
+            Optional sources
+            <span class="summary-note">Up to 3 more &middot; 6 URLs total</span>
+          </summary>
+          <div class="source-extras-content">
+            <p id="optional-purpose-help" class="field-help">
+              Pick a purpose for each extra page, or leave these slots blank.
+              A purpose label is a planning hint, not evidence.
+            </p>
+            {% for source_number in range(4, 7) %}
+              <fieldset class="optional-source">
+                <legend>
+                  Source {{ source_number }}
+                  <span class="source-priority">Optional</span>
+                </legend>
+                <div class="optional-source-fields">
+                  <div class="purpose-field">
+                    <label for="source-purpose-{{ source_number }}">Purpose for source {{ source_number }}</label>
+                    <select
+                      id="source-purpose-{{ source_number }}"
+                      class="source-input"
+                      aria-describedby="optional-purpose-help optional-signals-note"
+                    >
+                      <option value="">Choose a purpose</option>
+                      <option value="investors">Investors / annual report</option>
+                      <option value="newsroom">Newsroom / announcement</option>
+                      <option value="trust">Trust / security / compliance</option>
+                      <option value="industry">Industry / customer stories</option>
+                      <option value="careers">Careers / engineering blog</option>
+                    </select>
+                  </div>
+                  <div class="url-field">
+                    <label for="source-url-{{ source_number }}">Source {{ source_number }} URL</label>
+                    <input
+                      id="source-url-{{ source_number }}"
+                      type="url"
+                      class="source-input"
+                      placeholder="https://contoso.example/public-page"
+                      aria-describedby="optional-purpose-help source-eligibility"
+                      autocomplete="off"
+                      autocapitalize="none"
+                      spellcheck="false"
+                      inputmode="url"
+                      enterkeyhint="done"
+                    >
+                  </div>
+                </div>
+              </fieldset>
+            {% endfor %}
+          </div>
+        </details>
+
+        <div class="draft-actions">
+          <button
+            type="button"
+            disabled
+            class="button button--disabled"
+            aria-describedby="generation-status"
+          >
+            Generate insights
+          </button>
+          <p id="generation-status">
+            Not available in this preview. The planned outcome is source-backed company
+            insights and separate CEO, CTO, CIO, CFO and CISO talk points.
+          </p>
+        </div>
+      </section>
+
+      <aside class="source-guide" aria-labelledby="source-guide-title">
+        <p class="section-kicker">Source guide</p>
+        <h2 id="source-guide-title" class="section-title">Substance over volume.</h2>
+
+        <section aria-labelledby="high-value-title">
+          <h3 id="high-value-title" class="guide-subtitle">High-value optional sources</h3>
+          <dl class="source-guide-list">
+            <div>
+              <dt>Investors &amp; annual reports</dt>
+              <dd>Use the latest annual report or strategy presentation for priorities, finances and risks.</dd>
+            </div>
+            <div>
+              <dt>Newsroom &amp; announcements</dt>
+              <dd>A recent strategic announcement adds current initiatives and conversation timing.</dd>
+            </div>
+            <div>
+              <dt>Trust, security &amp; compliance</dt>
+              <dd>Look for published controls, governance and responsible AI commitments.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="other-sources-title">
+          <h3 id="other-sources-title" class="guide-subtitle">Other useful alternatives</h3>
+          <dl class="source-guide-list">
+            <div>
+              <dt>Industry solutions &amp; customer case studies</dt>
+              <dd>Add operating context and examples of delivered value.</dd>
+            </div>
+            <div>
+              <dt>Careers &amp; engineering blogs</dt>
+              <dd id="optional-signals-note">
+                Careers and engineering pages offer lower-confidence signals,
+                <strong>not proof of installed technology.</strong>
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <div class="source-guide-advice">
+          <p>
+            <strong>Listed company?</strong> Favor an annual report and a recent strategic announcement.
+          </p>
+          <p>
+            <strong>Private company?</strong> Favor substantive product, industry and customer pages.
+          </p>
+        </div>
       </aside>
     </div>
   </section>

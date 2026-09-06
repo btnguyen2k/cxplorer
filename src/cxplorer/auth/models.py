@@ -41,7 +41,7 @@ class AuthenticatedUser(BaseModel):
         return cls(
             provider="microsoft",
             subject=subject.strip(),
-            display_name=display_name or "Microsoft user",
+            display_name=display_name or "CXplorer user",
             email=email,
         )
 

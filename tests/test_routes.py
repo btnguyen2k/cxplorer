@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from cxplorer.config import Settings
+from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
 from tests.conftest import TEST_CSRF_TOKEN
 
@@ -20,7 +20,11 @@ class RenderedPage(HTMLParser):
         self.copy: list[str] = []
         self.elements: list[tuple[str, dict[str, str | None]]] = []
         self.links: list[dict[str, str]] = []
+        self.headings: list[dict[str, str]] = []
+        self.form_controls: list[tuple[str, dict[str, str | None]]] = []
         self._active_link: dict[str, str] | None = None
+        self._active_heading: dict[str, str] | None = None
+        self._in_form = False
         self.feed(html)
         self.close()
 
@@ -42,15 +46,28 @@ class RenderedPage(HTMLParser):
                 "text": "",
             }
             self.links.append(self._active_link)
+        if tag in {"h1", "h2", "h3"}:
+            self._active_heading = {"tag": tag, "text": ""}
+            self.headings.append(self._active_heading)
+        if tag == "form":
+            self._in_form = True
+        if self._in_form and tag in {"input", "button", "select", "textarea"}:
+            self.form_controls.append((tag, attributes))
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "a":
             self._active_link = None
+        if tag in {"h1", "h2", "h3"}:
+            self._active_heading = None
+        if tag == "form":
+            self._in_form = False
 
     def handle_data(self, data: str) -> None:
         self.copy.append(data)
         if self._active_link is not None:
             self._active_link["text"] += data
+        if self._active_heading is not None:
+            self._active_heading["text"] += data
 
     @property
     def text(self) -> str:
@@ -65,9 +82,7 @@ def test_public_routes_are_available(client: TestClient) -> None:
     assert landing.status_code == 200
     assert "Walk in already" in landing.text
     assert login.status_code == 200
-    assert "Microsoft sign-in unavailable" in login.text
-    assert "Continue with the Microsoft account connected to your workspace." in login.text
-    assert "OpenID Connect verification" in login.text
+    assert "Sign in" in RenderedPage(login.text).text
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
 
@@ -162,7 +177,7 @@ def test_landing_states_that_insights_are_not_generated_yet(
     ("signed_in", "action_label", "nav_label", "destination"),
     [
         (False, "Sign in to CXplorer", "Sign in", "/login"),
-        (True, "Open your workspace", "Dashboard", "/dashboard"),
+        (True, "Open your workspace", "Workspace", "/dashboard"),
     ],
 )
 def test_landing_actions_use_existing_destinations(
@@ -239,33 +254,129 @@ def test_landing_preview_is_labelled_and_inert(client: TestClient) -> None:
     )
 
 
-def test_login_page_keeps_the_shared_dark_chrome(client: TestClient) -> None:
-    page = RenderedPage(client.get("/login").text)
+@pytest.mark.parametrize("path", ["/login", "/dashboard"])
+def test_account_pages_inherit_the_landing_theme(client: TestClient, path: str) -> None:
+    if path == "/dashboard":
+        assert client.post("/_test/sign-in").status_code == 204
 
+    pages = [RenderedPage(client.get(url).text) for url in ("/", path)]
     theme_colors = [
-        attributes.get("content")
-        for tag, attributes in page.elements
-        if tag == "meta" and attributes.get("name") == "theme-color"
+        [
+            attributes.get("content")
+            for tag, attributes in page.elements
+            if tag == "meta" and attributes.get("name") == "theme-color"
+        ]
+        for page in pages
     ]
-    assert theme_colors == ["#020617"]
+    assert theme_colors == [["#020617"], ["#020617"]]
+    assert any(
+        tag == "html" and "application-root" in (attributes.get("class") or "").split()
+        for tag, attributes in pages[1].elements
+    )
 
 
-def test_configured_login_keeps_its_provider_action(settings: Settings) -> None:
-    configured_settings = settings.model_copy(
+def test_application_theme_tokens_have_a_single_shared_definition(client: TestClient) -> None:
+    stylesheet = client.get("/static/css/app.css")
+    assert stylesheet.status_code == 200
+    definitions = [
+        line.split(":", 1)[0].strip()
+        for line in stylesheet.text.splitlines()
+        if line.lstrip().startswith(("--color-", "--radius-"))
+    ]
+    assert "--color-background" in definitions
+    assert len(definitions) == len(set(definitions))
+
+
+@pytest.mark.parametrize(
+    ("next_path", "destination"),
+    [
+        (None, "/dashboard"),
+        ("/dashboard", "/dashboard"),
+        ("/dashboard?view=recent", "/dashboard?view=recent"),
+        ("https://contoso.example", "/dashboard"),
+        ("//contoso.example", "/dashboard"),
+    ],
+)
+def test_configured_login_offers_only_the_enabled_provider(
+    app_settings: AppSettings,
+    identity_settings: IdentityVendorSettings,
+    next_path: str | None,
+    destination: str,
+) -> None:
+    configured_identity_settings = identity_settings.model_copy(
         update={"ms_client_id": "test-client", "ms_client_secret": SecretStr("test-secret")}
     )
-    with TestClient(create_app(configured_settings)) as client:
-        response = client.get("/login", params={"next": "/dashboard"})
+    with TestClient(create_app(app_settings, configured_identity_settings)) as client:
+        response = client.get("/login", params={"next": next_path} if next_path else {})
 
     assert response.status_code == 200
     page = RenderedPage(response.text)
-    assert "Continue with the Microsoft account connected to your workspace." in page.text
-    provider_links = [link for link in page.links if "button--primary" in link["class"].split()]
+    provider_links = [
+        link for link in page.links if urlsplit(link["href"]).path.startswith("/auth/")
+    ]
     assert len(provider_links) == 1
-    assert " ".join(provider_links[0]["text"].split()) == "Continue with Microsoft"
+    assert " ".join(provider_links[0]["text"].split()) == "Continue with Microsoft Entra ID"
     provider_url = urlsplit(provider_links[0]["href"])
     assert provider_url.path == "/auth/microsoft/login"
-    assert parse_qs(provider_url.query) == {"next": ["/dashboard"]}
+    assert parse_qs(provider_url.query) == {"next": [destination]}
+    assert not any(tag == "form" for tag, _ in page.elements)
+    assert not any(
+        attributes.get("type") in {"email", "password"} for _, attributes in page.elements
+    )
+    assert not any(
+        word in heading["text"].casefold()
+        for heading in page.headings
+        for word in ("microsoft", "entra", "openid", "oauth")
+    )
+
+
+def test_unconfigured_login_has_no_working_provider_action(client: TestClient) -> None:
+    page = RenderedPage(client.get("/login").text)
+
+    assert not any(urlsplit(link["href"]).path.startswith("/auth/") for link in page.links)
+    assert any(
+        tag == "button" and "disabled" in attributes and attributes.get("type") == "button"
+        for tag, attributes in page.elements
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        ("authentication_failed", "We couldn't complete your sign-in. Please try again."),
+        (
+            "invalid_identity",
+            "Your account provider didn't return the details needed to sign in. "
+            "Please try another account.",
+        ),
+        (
+            "not_configured",
+            "Sign-in is not available in this environment yet. Please contact the administrator.",
+        ),
+    ],
+)
+def test_login_errors_are_provider_neutral_and_accessible(
+    client: TestClient, error: str, message: str
+) -> None:
+    response = client.get("/login", params={"error": error})
+    page = RenderedPage(response.text)
+
+    assert response.status_code == 200
+    assert message in page.text
+    assert any(attributes.get("role") == "alert" for _, attributes in page.elements)
+
+
+def test_signed_in_login_offers_the_workspace_instead_of_signing_in_again(
+    client: TestClient,
+) -> None:
+    assert client.post("/_test/sign-in").status_code == 204
+    page = RenderedPage(client.get("/login").text)
+
+    assert any(
+        urlsplit(link["href"]).path == "/dashboard" and "workspace" in link["text"].casefold()
+        for link in page.links
+    )
+    assert not any(urlsplit(link["href"]).path.startswith("/auth/") for link in page.links)
 
 
 def test_security_headers_are_added(client: TestClient) -> None:
@@ -314,6 +425,126 @@ def test_configured_session_can_access_private_routes(client: TestClient) -> Non
     assert "Ada Lovelace" in dashboard.text
     assert current_user.status_code == 200
     assert current_user.json()["email"] == "ada@example.com"
+
+
+def test_workspace_has_six_accessible_draft_url_inputs(client: TestClient) -> None:
+    assert client.post("/_test/sign-in").status_code == 204
+    page = RenderedPage(client.get("/dashboard").text)
+    url_inputs = [
+        attributes
+        for tag, attributes in page.elements
+        if tag == "input" and attributes.get("type") == "url"
+    ]
+    assert len(url_inputs) == 6
+    assert sum("required" in attributes for attributes in url_inputs) == 1
+
+    ids = [attributes["id"] for _, attributes in page.elements if "id" in attributes]
+    assert len(ids) == len(set(ids))
+    labels = {attributes.get("for") for tag, attributes in page.elements if tag == "label"}
+    source_controls = [
+        attributes
+        for tag, attributes in page.elements
+        if tag == "select" or (tag == "input" and attributes.get("type") == "url")
+    ]
+    for attributes in source_controls:
+        assert attributes.get("id") in labels
+        assert "form" not in attributes
+        for description_id in (attributes.get("aria-describedby") or "").split():
+            assert description_id in ids
+
+    for attributes in url_inputs:
+        placeholder = attributes.get("placeholder") or ""
+        assert urlsplit(placeholder).scheme == "https"
+        assert urlsplit(placeholder).hostname == "contoso.example"
+        assert not attributes.get("value")
+
+
+def test_workspace_draft_cannot_submit_or_generate_insights(client: TestClient) -> None:
+    assert client.post("/_test/sign-in").status_code == 204
+    page = RenderedPage(client.get("/dashboard").text)
+    forms = [attributes for tag, attributes in page.elements if tag == "form"]
+
+    assert len(forms) == 1
+    assert (forms[0].get("method") or "").casefold() == "post"
+    assert urlsplit(forms[0].get("action") or "").path == "/auth/logout"
+    assert not any(
+        tag in {"select", "textarea"} or attributes.get("type") == "url"
+        for tag, attributes in page.form_controls
+    )
+    csrf_fields = [
+        attributes
+        for tag, attributes in page.form_controls
+        if tag == "input" and attributes.get("name") == "csrf_token"
+    ]
+    assert len(csrf_fields) == 1
+    assert csrf_fields[0].get("type") == "hidden"
+    assert csrf_fields[0].get("value") == TEST_CSRF_TOKEN
+    draft_actions = [
+        attributes
+        for tag, attributes in page.elements
+        if tag == "button" and attributes.get("type") == "button"
+    ]
+    assert draft_actions
+    assert all("disabled" in attributes for attributes in draft_actions)
+    assert "draft" in page.text.casefold()
+    assert "test-subject" not in page.text
+
+
+def test_workspace_outlines_the_planned_sources_and_draft_limits(client: TestClient) -> None:
+    assert client.post("/_test/sign-in").status_code == 204
+    page = RenderedPage(client.get("/dashboard").text)
+
+    for copy in (
+        "One official company homepage is required.",
+        "Three to six URLs recommended; six total maximum.",
+        "About / Company / Who We Are",
+        "Products / Services / Solutions",
+        "public HTTPS HTML pages or text-based PDFs only",
+        "No authenticated sources",
+        "personal executive profiles",
+        "paywalled databases",
+        "High-value optional sources",
+        "Investors & annual reports",
+        "strategy presentation",
+        "Newsroom & announcements",
+        "Trust, security & compliance",
+        "responsible AI",
+        "Industry solutions & customer case studies",
+        "Careers & engineering blogs",
+        "lower-confidence signals",
+        "not proof of installed technology",
+        "No pages are fetched.",
+        "Insight generation is not available yet",
+        "CEO, CTO, CIO, CFO and CISO",
+    ):
+        assert copy in page.text
+    assert "URLs aren\u2019t saved." in page.text
+
+    options = [attributes.get("value") for tag, attributes in page.elements if tag == "option"]
+    for purpose in ("", "investors", "newsroom", "trust", "industry", "careers"):
+        assert options.count(purpose) == 3
+
+
+@pytest.mark.parametrize(
+    ("path", "signed_in"), [("/login", False), ("/login", True), ("/dashboard", True)]
+)
+def test_account_pages_keep_semantic_markup_and_strict_csp(
+    client: TestClient, path: str, signed_in: bool
+) -> None:
+    if signed_in:
+        assert client.post("/_test/sign-in").status_code == 204
+    response = client.get(path)
+    page = RenderedPage(response.text)
+
+    assert len([heading for heading in page.headings if heading["tag"] == "h1"]) == 1
+    assert not {"script", "style"} & {tag for tag, _ in page.elements}
+    assert not any(
+        name == "style" or name.startswith("on")
+        for _, attributes in page.elements
+        for name in attributes
+    )
+    assert "script-src 'self'; style-src 'self'" in response.headers["content-security-policy"]
+    assert "unsafe-inline" not in response.headers["content-security-policy"]
 
 
 def test_logout_requires_csrf_token_and_clears_session(client: TestClient) -> None:

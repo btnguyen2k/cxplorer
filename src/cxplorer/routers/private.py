@@ -24,7 +24,7 @@ api_router = APIRouter(prefix="/api/private", tags=["private"])
     name="dashboard",
 )
 def dashboard(request: Request) -> HTMLResponse | RedirectResponse:
-    """Render the private application shell."""
+    """Render the private draft workspace for company URL preparation."""
     user = get_optional_user(request)
     if user is None:
         login_url = request.url_for("login_page").include_query_params(next=request.url.path)

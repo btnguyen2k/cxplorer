@@ -1,4 +1,4 @@
-"""Application configuration loaded from environment variables."""
+"""Application and identity-provider configuration with separate dotenv sources."""
 
 from typing import Literal, Self
 
@@ -6,13 +6,14 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    """Runtime settings with secure production defaults."""
+class AppSettings(BaseSettings):
+    """Generic application defaults with optional private local overrides."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=("app_config.env", "app_config.local.env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     app_name: str = "CXplorer"
@@ -25,6 +26,32 @@ class Settings(BaseSettings):
         min_length=1,
     )
     docs_enabled: bool | None = None
+    reload: bool = False
+
+    @property
+    def use_secure_cookies(self) -> bool:
+        """Enable HTTPS-only cookies by default outside local development and tests."""
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.environment == "production"
+
+    @property
+    def expose_api_docs(self) -> bool:
+        """Expose interactive API documentation unless production disables it by default."""
+        if self.docs_enabled is not None:
+            return self.docs_enabled
+        return self.environment != "production"
+
+
+class IdentityVendorSettings(BaseSettings):
+    """External identity defaults with optional private local overrides."""
+
+    model_config = SettingsConfigDict(
+        env_file=("id_vendor.env", "id_vendor.local.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
 
     ms_client_id: str | None = None
     ms_client_secret: SecretStr | None = None
@@ -54,17 +81,3 @@ class Settings(BaseSettings):
             and self.ms_client_id.strip()
             and self.ms_client_secret.get_secret_value().strip()
         )
-
-    @property
-    def use_secure_cookies(self) -> bool:
-        """Enable HTTPS-only cookies by default outside local development and tests."""
-        if self.session_cookie_secure is not None:
-            return self.session_cookie_secure
-        return self.environment == "production"
-
-    @property
-    def expose_api_docs(self) -> bool:
-        """Expose interactive API documentation unless production disables it by default."""
-        if self.docs_enabled is not None:
-            return self.docs_enabled
-        return self.environment != "production"

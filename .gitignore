@@ -151,6 +151,11 @@ activemq-data/
 
 # Environments
 .env
+app_config.local.env
+id_vendor.local.env
+# Shared defaults remain trackable even when global rules ignore dotenv files.
+!app_config.env
+!id_vendor.env
 .envrc
 .venv
 env/
