@@ -1,11 +1,17 @@
 name: "CI"
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - dev
+    branches: [ '*' ]
+    paths-ignore:
+      - '.github/dependabot.yaml'
+  pull_request:
+    types: [ opened, edited, reopened, synchronize, review_requested ]
+    branches: [ '*' ]
+  workflow_call:
+
+  # Allow manually trigger
+  workflow_dispatch:
 
 permissions:
   contents: read
