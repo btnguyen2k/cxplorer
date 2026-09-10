@@ -1289,6 +1289,11 @@ class _HTMLText(HTMLParser):
             self.blocks.insert(0, _Block(self.title, section="Title"))
 
 
+def _unparsed_html_chars(parser: _HTMLText) -> int:
+    # Newer Python patch releases stage unparsed input separately to avoid quadratic rescans.
+    return len(parser.rawdata) + getattr(parser, "_pending_len", 0)
+
+
 def _parse_html(body: bytes, headers: httpx.Headers, url: str, limits: FetchLimits) -> _HTMLText:
     encoding = "utf-8"
     match = re.search(r"charset\s*=\s*[\"']?([a-zA-Z0-9_-]+)", headers.get("content-type", ""))
@@ -1328,7 +1333,7 @@ def _parse_html(body: bytes, headers: httpx.Headers, url: str, limits: FetchLimi
     for index in range(0, len(text), 8192):
         parser.feed(text[index : index + 8192])
         parser._tick()
-        if parser.cdata_elem is None and len(parser.rawdata) > 65_536:
+        if parser.cdata_elem is None and _unparsed_html_chars(parser) > 65_536:
             raise SourceError(
                 "html_complexity",
                 "The HTML document contains an oversized incomplete markup token.",

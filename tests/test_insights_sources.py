@@ -1093,6 +1093,22 @@ def test_html_depth_and_node_bounds_fail_explicitly():
     assert error.value.code == "html_complexity"
 
 
+def test_staged_parser_input_counts_toward_the_html_complexity_bound(monkeypatch):
+    def stage_unparsed_input(parser, _data):
+        parser.rawdata = "<p attribute='" + "x" * 32_768
+        parser._pending_len = 32_769
+
+    monkeypatch.setattr(sources._HTMLText, "feed", stage_unparsed_input)
+    with pytest.raises(SourceError) as error:
+        sources._parse_html(
+            b"<p attribute='value",
+            httpx.Headers({"content-type": "text/html"}),
+            "https://contoso.com/",
+            FetchLimits(),
+        )
+    assert error.value.code == "html_complexity"
+
+
 def test_html_timeout_encoding_and_publication_metadata_omissions_are_explicit():
     with pytest.raises(SourceError) as error:
         asyncio.run(Web().fetch(limits=FetchLimits(html_parse_timeout=1e-12)))
