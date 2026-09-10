@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" class="{% block html_class %}{% endblock %}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="{% block theme_color %}#020617{% endblock %}">
+    <meta
+      name="description"
+      content="{% block description %}A secure workspace for exploring what matters.{% endblock %}"
+    >
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+    {% block scripts %}{% endblock %}
+  </head>
+  <body class="{% block body_class %}{% endblock %}">
+    <a href="#main-content" class="skip-link">
+      Skip to content
+    </a>
+
+    <div aria-hidden="true" class="page-glow"></div>
+
+    <header class="site-header">
+      <nav aria-label="Primary navigation" class="container site-nav">
+        <a href="{{ url_for('landing_page') }}" class="brand">
+          <span class="brand-mark">
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="icon" stroke-width="2">
+              {% block brand_symbol %}
+                <path d="M18.4 6.6A8 8 0 1 0 20 12"></path>
+                <circle cx="12" cy="12" r="2.6" class="brand-dot"></circle>
+              {% endblock %}
+            </svg>
+          </span>
+          <span class="brand-name">{{ app_name }}</span>
+        </a>
+
+        <div class="nav-actions">
+          {% if user %}
+            <a
+              href="{{ url_for('dashboard') }}"
+              class="nav-link"
+              {% if request.url.path == url_for('dashboard').path %}aria-current="page"{% endif %}
+            >
+              Workspace
+            </a>
+          {% else %}
+            <a
+              href="{{ url_for('login_page') }}"
+              class="nav-link"
+              {% if request.url.path == url_for('login_page').path %}aria-current="page"{% endif %}
+            >
+              Sign in
+            </a>
+          {% endif %}
+        </div>
+      </nav>
+    </header>
+
+    <main id="main-content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-content">
+        <p>&copy; {{ current_year }} {{ app_name }} &middot; Version {{ app_version }}</p>
+        {% block footer_note %}
+          <p>Executive conversation preparation for technical sellers.</p>
+        {% endblock %}
+      </div>
+    </footer>
+  </body>
+</html>

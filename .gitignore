@@ -1,3 +1,5 @@
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -149,6 +151,15 @@ activemq-data/
 
 # Environments
 .env
+app_config.local.env
+id_vendor.local.env
+ai_vendors.local.env
+ai_tasks.local.env
+# Shared defaults remain trackable even when global rules ignore dotenv files.
+!app_config.env
+!id_vendor.env
+!ai_vendors.env
+!ai_tasks.env
 .envrc
 .venv
 env/
@@ -186,7 +197,7 @@ cython_debug/
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #   and can be added to the global gitignore or merged into this file.  For a more nuclear
 #   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
+.idea/
 
 # Abstra
 #   Abstra is an AI-powered process automation framework.
@@ -205,6 +216,10 @@ tempCodeRunnerFile.py
 
 # Ruff stuff:
 .ruff_cache/
+
+# Operating system files
+.DS_Store
+Thumbs.db
 
 # PyPI configuration file
 .pypirc
