@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+
+{% set basis_labels = {
+  'analysis': 'Analysis · interpretation',
+  'hypothesis': 'Hypothesis · validate in discovery',
+  'unknown': 'Unknown · not established'
+} %}
+{% set coverage_labels = {
+  'complete': 'Complete',
+  'limited': 'Limited coverage',
+  'insufficient_evidence': 'Insufficient evidence',
+  'unavailable': 'Not delivered'
+} %}
+{% set approach_labels = {
+  'ai_assisted': 'AI-assisted',
+  'ai_augmented': 'AI-augmented',
+  'bounded_autonomy': 'Bounded autonomy',
+  'non_ai': 'Non-AI',
+  'discovery_only': 'Discovery only'
+} %}
+{% macro source_link(source, number) -%}
+  <sup class="source-citation-marker"><a
+      class="source-citation"
+      href="{{ source.url }}"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Open source {{ number }}: {{ source.title }} (opens in a new tab)"
+    >[{{ number }}]</a></sup>
+{%- endmacro %}
+
+{% macro source_marker(source_id) -%}
+  {%- for source in report.sources -%}
+    {%- if source.id == source_id -%}
+      {{- source_link(source, loop.index) -}}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endmacro %}
+
+{% macro source_links(fact_ids) -%}
+  {%- set references = namespace(source_ids=[]) -%}
+  {%- for fact_id in fact_ids -%}
+    {%- set fact = facts_by_id.get(fact_id) -%}
+    {%- if fact -%}
+      {%- for citation in fact.evidence -%}
+        {%- if citation.source_id not in references.source_ids -%}
+          {%- set references.source_ids = references.source_ids + [citation.source_id] -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- for source in report.sources -%}
+    {%- if source.id in references.source_ids -%}
+      {{- source_link(source, loop.index) -}}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endmacro %}
+
+{% macro claim_meta(claim) -%}
+  <span class="claim-meta">
+    {{- source_links(claim.fact_ids) -}}
+    {%- if claim.basis != 'source_backed' -%}
+      <span class="evidence-label evidence-label--{{ claim.basis }}">{{ basis_labels.get(claim.basis, 'Unknown') }}</span>
+    {%- endif -%}
+  </span>
+{%- endmacro %}
+
+{% macro grounded(claim) %}
+  <div class="grounded-text">
+    <p>{{ (claim.text if claim.text else 'Not established by the accepted sources.') | trim }}{% if claim.fact_ids %}&#8288;{% endif %}{{ claim_meta(claim) }}</p>
+  </div>
+{% endmacro %}
+
+{% macro grounded_list(claims) %}
+  {% if claims %}
+    <ul class="grounded-list" role="list">
+      {% for claim in claims %}<li>{{ grounded(claim) }}</li>{% endfor %}
+    </ul>
+  {% else %}
+    <p class="insight-unknown">Unknown — not established by the accepted sources.</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro text_list(items, empty='Not specified; establish in discovery.') %}
+  {% if items %}
+    <ul class="insight-list">{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% else %}
+    <p class="insight-unknown">{{ empty }}</p>
+  {% endif %}
+{% endmacro %}
+
+{% macro gaps(items) %}
+  <ul class="evidence-gap-list" role="list">
+    {% for gap in items %}
+      <li><strong>{{ gap.area }}</strong><p class="insight-muted">{{ gap.detail }}</p></li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
+{% block title %}{{ report.company_name.text or 'Company' }} insights — {{ app_name }}{% endblock %}
+{% block description %}A source-backed company brief with executive conversations, shared opportunities and traceable evidence.{% endblock %}
+{% block html_class %}application-root{% endblock %}
+{% block body_class %}application-page{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', path='/js/insights-report.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+  <article
+    class="container workspace insight-report"
+    aria-labelledby="report-title"
+    data-cache-root
+    data-insight-report
+    data-cache-prefix="cxplorer:{{ cache_namespace }}"
+    data-report-id="{{ report.report_id }}"
+    data-cache-payload-url="{{ cache_payload_url }}"
+    data-csrf-token="{{ csrf_token }}"
+  >
+    <a class="insight-link workspace-back" href="{{ url_for('dashboard') }}">Back to workspace</a>
+    <header class="insight-header">
+      <p class="section-kicker">Company insight · Executive relevance</p>
+      <h1 id="report-title" class="page-title">{{ report.company_name.text or 'Company insights' }}</h1>
+      <dl class="report-meta">
+        <div>
+          <dt>Evidence as of</dt>
+          <dd><time datetime="{{ report.as_of_date.isoformat() }}">{{ report.as_of_date.strftime('%d %b %Y') }}</time></dd>
+        </div>
+        <div>
+          <dt>Generated</dt>
+          <dd><time datetime="{{ report.generated_at.isoformat() }}">{{ report.generated_at.strftime('%d %b %Y, %H:%M %Z') }}</time></dd>
+        </div>
+        <div>
+          <dt>Accepted sources</dt>
+          <dd>{{ report.sources | length }}</dd>
+        </div>
+        <div>
+          <dt>Report coverage</dt>
+          <dd>{{ 'Partial' if report.status == 'partial' else 'Completed' }}</dd>
+        </div>
+      </dl>
+    </header>
+
+    <section class="insight-panel cache-panel" aria-labelledby="report-cache-title">
+      <h2 id="report-cache-title" class="insight-card-title">Keep a copy before you leave</h2>
+      <p class="cache-feedback" role="status" aria-live="polite" aria-atomic="true" data-report-save-status>
+        Saving a temporary browser copy. Download JSON until saving is confirmed.
+      </p>
+      <p class="cache-feedback" role="status" aria-live="polite" data-cache-notice></p>
+      <p class="alert alert--error" role="alert" data-cache-warning hidden></p>
+      <div class="insight-actions">
+        <a class="button button--primary" href="{{ download_url }}" download>Download JSON</a>
+        <button type="button" class="button button--secondary" data-report-retry hidden>Retry saving report</button>
+        <button type="button" class="button button--secondary" data-print-report hidden>Print report</button>
+        <button type="button" class="text-button" data-report-delete hidden>Delete saved copy</button>
+        <a class="insight-link" href="{{ url_for('login_page') }}?next={{ ('/insights/' ~ report.report_id) | urlencode }}" data-session-link hidden>Sign in again</a>
+      </div>
+      <details class="source-extras cache-tools">
+        <summary>Manage my browser storage</summary>
+        <div class="source-extras-content">
+          <p class="field-help">
+            Clear this account&rsquo;s draft and saved reports from this browser. Downloads,
+            other accounts and unrelated browser data stay untouched. This cannot be undone.
+          </p>
+          <button type="button" class="button button--secondary" data-cache-clear hidden>Clear my browser cache</button>
+        </div>
+      </details>
+      <noscript><p class="field-help">JavaScript is off, so this report cannot be saved in the browser. Download JSON or use your browser&rsquo;s Print command.</p></noscript>
+    </section>
+
+    <div class="report-layout">
+      <nav class="report-nav" aria-label="Report sections">
+        <p class="section-kicker">In this brief</p>
+        <a href="#executive-summary">Executive summary</a>
+        <a href="#company-profile">Company profile</a>
+        <a href="#announcements">Official announcements</a>
+        <a href="#opportunities">Shared opportunities</a>
+        {% for role in report.requested_audiences %}
+          <a href="#audience-{{ role }}">{{ audience_labels.get(role, role | upper) }} conversation</a>
+        {% endfor %}
+        <a href="#evidence-gaps">Gaps &amp; contradictions</a>
+        <a href="#evidence-facts">Evidence &amp; excerpts</a>
+        <a href="#report-sources">Sources &amp; checks</a>
+      </nav>
+
+      <div class="report-content">
+        <section id="executive-summary" class="report-section" aria-labelledby="summary-title">
+          <p class="section-kicker">01 · Read the business</p>
+          <h2 id="summary-title" class="section-title">Executive summary</h2>
+          <p class="field-help">Follow a numbered citation to its accepted source. Unknown means the accepted sources did not establish it.</p>
+          {{ grounded_list(report.executive_summary) }}
+        </section>
+
+        <section id="company-profile" class="report-section" aria-labelledby="company-title">
+          <h2 id="company-title" class="section-title">Company profile</h2>
+          {{ grounded(report.company.business_description) }}
+          <div class="report-detail-grid">
+            {% for field, label in [
+              ('industries', 'Industries'),
+              ('offerings', 'Products & services'),
+              ('customer_segments', 'Customers'),
+              ('geographies', 'Geographic footprint'),
+              ('recent_initiatives', 'Recent initiatives'),
+              ('strategic_priorities', 'Strategic priorities'),
+              ('financials', 'Financial context'),
+              ('technology', 'Technology signals'),
+              ('leadership', 'Leadership'),
+              ('security', 'Security & governance')
+            ] %}
+              <section class="report-detail" aria-labelledby="profile-{{ field }}">
+                <h3 id="profile-{{ field }}" class="insight-card-title">{{ label }}</h3>
+                {{ grounded_list(report.company[field]) }}
+              </section>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section id="announcements" class="report-section" aria-labelledby="announcements-title">
+          <h2 id="announcements-title" class="section-title">Official announcements</h2>
+          <p class="field-help">
+            Always searched: the 90 days before the report&rsquo;s as-of date, up to three
+            official company announcements, with emphasis on executives. No third-party news.
+          </p>
+          {% if report.news_status == 'found' and report.announcements %}
+            <ul class="announcement-list" role="list">
+              {% for announcement in report.announcements %}
+                {% set source = sources_by_id.get(announcement.source_id) %}
+                <li class="insight-panel">
+                  <p class="section-kicker"><time datetime="{{ announcement.published_at.isoformat() }}">{{ announcement.published_at.strftime('%d %b %Y') }}</time></p>
+                  <h3 class="insight-card-title">
+                    {{ announcement.title }}{% if source %}{{ source_marker(announcement.source_id) }}{% endif %}
+                  </h3>
+                  <p class="insight-muted">
+                    {% if announcement.executive_name or announcement.executive_role %}
+                      {{ announcement.executive_name or 'Executive name not established' }}{% if announcement.executive_role %} · {{ announcement.executive_role }}{% endif %}
+                    {% else %}Executive involvement not established.{% endif %}
+                  </p>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="insight-empty">
+              <h3 class="insight-card-title">No qualifying announcements found</h3>
+              <p>No official announcements were accepted for this 90-day window. This lookup
+                result is not proof that none exist. Review the source checks and evidence gaps.</p>
+            </div>
+          {% endif %}
+        </section>
+
+        <section id="opportunities" class="report-section" aria-labelledby="opportunities-title">
+          <p class="section-kicker">02 · Make the opportunity concrete</p>
+          <h2 id="opportunities-title" class="section-title">Shared opportunities</h2>
+          <p class="field-help">
+            These are proposed opportunities, not claims of a confirmed need. Each executive
+            conversation refers to these same prerequisites, controls and success criteria.
+            AI is not assumed to be the best approach.
+          </p>
+          {% for opportunity in report.opportunities %}
+            <article id="opportunity-{{ opportunity.id }}" class="insight-panel opportunity-card" aria-labelledby="opportunity-title-{{ opportunity.id }}">
+              <div class="insight-section-heading">
+                <span class="badge">Priority {{ opportunity.priority }}</span>
+                <span class="evidence-label">{{ approach_labels.get(opportunity.approach, opportunity.approach) }}</span>
+              </div>
+              <h3 id="opportunity-title-{{ opportunity.id }}" class="opportunity-title">{{ opportunity.title }}</h3>
+              <div class="report-detail-grid">
+                <div class="report-detail">
+                  <h4 class="insight-subtitle">Company signal</h4>
+                  {{ grounded(opportunity.company_signal) }}
+                </div>
+                <div class="report-detail">
+                  <h4 class="insight-subtitle">Opportunity hypothesis</h4>
+                  {{ grounded(opportunity.hypothesis) }}
+                </div>
+              </div>
+              <dl class="insight-definition-list">
+                <div><dt>Workflow</dt><dd>{{ opportunity.workflow }}</dd></div>
+                <div><dt>Intended business outcome</dt><dd>{{ grounded(opportunity.business_outcome) }}</dd></div>
+              </dl>
+
+              <h4 class="insight-subtitle">Shared prerequisites</h4>
+              <p class="field-help">Proposed requirements to validate, not evidence that these capabilities already exist.</p>
+              <dl class="prerequisite-grid">
+                {% for field, label in [
+                  ('data', 'Data'), ('integration', 'Integration'), ('business_owner', 'Business owner'),
+                  ('adoption', 'Adoption'), ('security', 'Security'), ('governance', 'Governance')
+                ] %}
+                  <div><dt>{{ label }}</dt><dd>{{ text_list(opportunity.prerequisites[field]) }}</dd></div>
+                {% endfor %}
+              </dl>
+
+              <h4 class="insight-subtitle">Human controls</h4>
+              {{ text_list(opportunity.human_controls) }}
+              <h4 class="insight-subtitle">Success criteria</h4>
+              <ul class="success-criteria" role="list">
+                {% for criterion in opportunity.success_criteria %}
+                  <li>
+                    <h5 class="insight-card-title">{{ criterion.metric }}</h5>
+                    <dl class="insight-definition-list">
+                      <div>
+                        <dt>Baseline evidence</dt>
+                        <dd>{% if criterion.baseline_fact_ids %}{{ source_links(criterion.baseline_fact_ids) }}{% else %}Unknown — establish a baseline before the pilot.{% endif %}</dd>
+                      </div>
+                      <div><dt>Proposed target, not a forecast</dt><dd>{{ criterion.target or 'No target established; agree one in discovery.' }}</dd></div>
+                      <div><dt>Measurement plan</dt><dd>{{ criterion.measurement_plan }}</dd></div>
+                    </dl>
+                  </li>
+                {% endfor %}
+              </ul>
+              <dl class="insight-definition-list">
+                <div><dt>Non-AI alternative</dt><dd>{{ opportunity.non_ai_alternative or 'Not specified; assess a simpler non-AI approach in discovery.' }}</dd></div>
+                <div><dt>Next step</dt><dd>{{ opportunity.next_step }}</dd></div>
+              </dl>
+            </article>
+          {% else %}
+            <div class="insight-empty">
+              <h3 class="insight-card-title">No accepted opportunities</h3>
+              <p>The available evidence did not support a usable opportunity. Start with the evidence gaps rather than assuming an AI use case.</p>
+            </div>
+          {% endfor %}
+        </section>
+
+        {% for role in report.requested_audiences %}
+          {% set audience = report.audiences | selectattr('audience', 'equalto', role) | first | default(none) %}
+          {% set coverage = report.audience_coverage | selectattr('audience', 'equalto', role) | first | default(none) %}
+          <section id="audience-{{ role }}" class="report-section audience-brief" aria-labelledby="audience-title-{{ role }}">
+            <p class="section-kicker">Executive conversation · {{ audience_labels.get(role, role | upper) }}</p>
+            <div class="insight-section-heading">
+              <h2 id="audience-title-{{ role }}" class="section-title">{{ audience_labels.get(role, role | upper) }} conversation</h2>
+              <span class="badge">{{ coverage_labels.get(coverage.status, 'Not delivered') if coverage else 'Not delivered' }}</span>
+            </div>
+            {% if audience %}
+              {% if audience.coverage != 'complete' %}
+                <p class="coverage-note">This audience has {{ coverage_labels.get(audience.coverage, 'limited coverage') | lower }}. Treat its questions as discovery, not a complete executive brief.</p>
+              {% endif %}
+              <h3 class="insight-subtitle">Open the conversation</h3>
+              {{ grounded(audience.opening) }}
+              {% for point in audience.talk_points %}
+                {% set opportunity = opportunities_by_id.get(point.opportunity_id) %}
+                <article class="insight-panel talk-point" aria-labelledby="talk-{{ role }}-{{ loop.index }}">
+                  <h3 id="talk-{{ role }}-{{ loop.index }}" class="insight-card-title">Talk point {{ loop.index }}{% if opportunity %} · {{ opportunity.title }}{% endif %}</h3>
+                  <dl class="insight-definition-list">
+                    <div><dt>Company signal</dt><dd>{{ grounded(point.company_signal) }}</dd></div>
+                    <div><dt>Suggested seller line</dt><dd>{{ grounded(point.seller_line) }}</dd></div>
+                    <div><dt>Why it matters to the {{ audience_labels.get(role, role | upper) }}</dt><dd>{{ grounded(point.audience_relevance) }}</dd></div>
+                    <div><dt>Discovery question</dt><dd>{{ point.discovery_question }}</dd></div>
+                    <div><dt>Success measure to agree</dt><dd>{{ point.success_measure }}</dd></div>
+                    <div><dt>Next step</dt><dd>{{ point.next_step }}</dd></div>
+                  </dl>
+                  {% if opportunity %}
+                    <a class="insight-link shared-opportunity-link" href="#opportunity-{{ opportunity.id }}">Review shared prerequisites, controls &amp; success criteria</a>
+                  {% else %}
+                    <p class="insight-unknown">The referenced shared opportunity is unavailable.</p>
+                  {% endif %}
+                </article>
+              {% else %}
+                <p class="insight-unknown">No accepted talk points for this audience. Use the evidence gaps to guide discovery.</p>
+              {% endfor %}
+              <h3 class="insight-subtitle">Discovery questions</h3>
+              {{ text_list(audience.discovery_questions, 'No additional discovery questions were established.') }}
+              {% if audience.objections %}
+                <h3 class="insight-subtitle">Possible objections &amp; suggested responses</h3>
+                <dl class="insight-definition-list">
+                  {% for objection in audience.objections %}
+                    <div><dt>{{ objection.objection }}</dt><dd>{{ grounded(objection.response) }}</dd></div>
+                  {% endfor %}
+                </dl>
+              {% endif %}
+              <div class="source-guide-advice"><p><strong>Next-step ask</strong></p><p>{{ audience.next_step_ask }}</p></div>
+              {% if audience.evidence_gaps %}
+                <h3 class="insight-subtitle">Gaps for this audience</h3>
+                {{ gaps(audience.evidence_gaps) }}
+              {% endif %}
+            {% else %}
+              <div class="insight-empty">
+                <h3 class="insight-card-title">This requested audience was not delivered</h3>
+                <p>No accepted {{ audience_labels.get(role, role | upper) }} talk points are available.
+                  Review the overall gaps and shared evidence; do not infer the executive&rsquo;s priorities.</p>
+              </div>
+            {% endif %}
+          </section>
+        {% endfor %}
+
+        <section id="evidence-gaps" class="report-section" aria-labelledby="gaps-title">
+          <p class="section-kicker">03 · Keep the evidence honest</p>
+          <h2 id="gaps-title" class="section-title">Gaps &amp; contradictions</h2>
+          <h3 class="insight-subtitle">What we still need to know</h3>
+          {% if report.evidence_gaps %}
+            {{ gaps(report.evidence_gaps) }}
+          {% else %}
+            <p class="insight-muted">No additional gaps were recorded. This does not mean the company picture is exhaustive.</p>
+          {% endif %}
+          <h3 class="insight-subtitle">Conflicting evidence</h3>
+          {% if report.contradictions %}
+            <ul class="evidence-gap-list" role="list">
+              {% for contradiction in report.contradictions %}
+                <li>
+                  <h4 class="insight-card-title">{{ contradiction.subject }}</h4>
+                  <p class="insight-muted">{{ contradiction.explanation }}</p>
+                  <p class="source-references">{{ source_links(contradiction.fact_ids) }}</p>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="insight-muted">No contradictions were recorded among the accepted facts. That is not independent verification.</p>
+          {% endif %}
+        </section>
+
+        <section id="evidence-facts" class="report-section" aria-labelledby="facts-title">
+          <h2 id="facts-title" class="section-title">Evidence &amp; excerpts</h2>
+          <p class="field-help">
+            Company-reported facts with direct source excerpts. Figures retain their time
+            period and actual, forecast or target labels. Source links open in a new tab.
+          </p>
+          <ol class="evidence-fact-list" role="list">
+            {% for fact in report.facts %}
+              <li id="fact-{{ fact.id }}" class="insight-panel evidence-fact" tabindex="-1">
+                <div class="insight-section-heading">
+                  <h3 class="insight-card-title">{{ fact.id }} · {{ fact.entity }}</h3>
+                  <span class="evidence-label evidence-label--source_backed">Company-reported fact</span>
+                </div>
+                <p>{{ fact.statement }}</p>
+                <p class="field-help">{{ fact.category | replace('_', ' ') | capitalize }}{% if fact.time_context %} · {{ fact.time_context }}{% endif %}</p>
+                {% if fact.quantities %}
+                  <ul class="insight-list">
+                    {% for quantity in fact.quantities %}
+                      <li>
+                        <strong>{{ quantity.numeric_text }}</strong>
+                        {% if fact.warnings | selectattr('quantity_index', 'equalto', loop.index0) | list %}
+                          <span class="evidence-label evidence-label--unknown">Numeric text unverified</span>
+                        {% endif %}
+                        {% if quantity.unit %} · {{ quantity.unit }}{% endif %}
+                        {% if quantity.currency %} · {{ quantity.currency }}{% endif %}
+                        · {{ quantity.kind | capitalize }}
+                        · {{ quantity.period or 'Period not established' }}
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if fact.warnings %}
+                  <div class="coverage-note" role="note" aria-label="Quantity warnings">
+                    <strong>Quantity warnings</strong>
+                    <ul class="insight-list">
+                      {% for warning in fact.warnings %}
+                        <li>{{ warning.detail }}</li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                {% endif %}
+                {% for citation in fact.evidence %}
+                  {% set source = sources_by_id.get(citation.source_id) %}
+                  <blockquote class="evidence-quote">
+                    <p>{{ citation.quote }}</p>
+                    <footer>
+                      {% if source %}
+                        {{ source.title }}{{ source_marker(citation.source_id) }}
+                      {% else %}Source unavailable{% endif %}
+                      {% if citation.page %} · Page {{ citation.page }}{% endif %}
+                      {% if citation.section %} · {{ citation.section }}{% endif %}
+                    </footer>
+                  </blockquote>
+                {% endfor %}
+              </li>
+            {% else %}
+              <li class="insight-empty">No accepted facts are available. Do not treat analysis as company evidence.</li>
+            {% endfor %}
+          </ol>
+        </section>
+
+        <section id="report-sources" class="report-section" aria-labelledby="report-sources-title">
+          <h2 id="report-sources-title" class="section-title">Sources &amp; checks</h2>
+          <p class="field-help">
+            Accepted sources are checked for accessibility and company relevance. Coverage
+            notes and rejected or skipped inputs remain visible, rather than disappearing from the brief.
+          </p>
+          <h3 class="insight-subtitle">Accepted sources</h3>
+          <ol class="source-record-list" role="list">
+            {% for source in report.sources %}
+              <li id="source-{{ source.id }}" class="insight-panel" tabindex="-1">
+                <div class="insight-section-heading">
+                  <h4 class="insight-card-title">[{{ loop.index }}] · {{ source.title }}</h4>
+                  <span class="badge">{{ 'Official announcement' if source.is_news else source.purpose | replace('_', ' ') | capitalize }}</span>
+                </div>
+                <a class="insight-link source-address" href="{{ source.url }}" target="_blank" rel="noopener noreferrer" aria-label="{{ source.title }} (opens in a new tab)">{{ source.url }}</a>
+                <dl class="insight-definition-list">
+                  <div><dt>Format</dt><dd>{{ 'Text-based PDF' if source.media_type == 'application/pdf' else 'HTML page' }}</dd></div>
+                  <div><dt>Retrieved</dt><dd><time datetime="{{ source.retrieved_at.isoformat() }}">{{ source.retrieved_at.strftime('%d %b %Y, %H:%M %Z') }}</time></dd></div>
+                  <div>
+                    <dt>Published</dt>
+                    <dd>{% if source.published_at %}<time datetime="{{ source.published_at.isoformat() }}">{{ source.published_at.strftime('%d %b %Y') }}</time>{% else %}Publication date not established{% endif %}</dd>
+                  </div>
+                </dl>
+                {% if source.coverage_note %}<p class="coverage-note">{{ source.coverage_note }}</p>{% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+          <h3 class="insight-subtitle">Source outcomes</h3>
+          <ul class="source-outcome-list" role="list">
+            {% for outcome in report.source_outcomes %}
+              <li class="insight-panel">
+                <span class="badge">{{ outcome.status | capitalize }}</span>
+                <p class="source-address">{{ outcome.url }}</p>
+                <p class="insight-muted">{{ outcome.reason }}</p>
+              </li>
+            {% else %}
+              <li class="insight-muted">No additional source outcomes were recorded.</li>
+            {% endfor %}
+          </ul>
+        </section>
+      </div>
+    </div>
+    <p class="report-endnote">Prepared for conversation, not a substitute for discovery.
+      Validate hypotheses, proposed targets and executive priorities with the company.
+      Report {{ report.report_id }}.</p>
+  </article>
+{% endblock %}

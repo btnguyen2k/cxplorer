@@ -1,0 +1,87 @@
+"""Shared test fixtures."""
+
+import os
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fastapi import Request, Response
+from fastapi.testclient import TestClient
+
+from cxplorer.auth.dependencies import CSRF_TOKEN_KEY, SESSION_USER_KEY
+from cxplorer.config import AppSettings, IdentityVendorSettings
+from cxplorer.main import create_app
+
+TEST_APP_NAME = "CXplorer"
+TEST_CSRF_TOKEN = "test-csrf-token"
+TEST_SESSION_SECRET = "test-session-secret-with-at-least-32-characters"
+
+
+@pytest.fixture
+def isolated_ai_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep application tests independent of operator AI credentials."""
+    for name in tuple(os.environ):
+        if name.upper().startswith(("CX_AI", "AZURE_")):
+            monkeypatch.delenv(name)
+
+
+@pytest.fixture
+def app_settings(tmp_path: Path, isolated_ai_environment: None) -> AppSettings:
+    """Return isolated application settings that are safe for the HTTP test client."""
+    return AppSettings(
+        _env_file=None,
+        app_name=TEST_APP_NAME,
+        environment="test",
+        session_secret=TEST_SESSION_SECRET,
+        session_cookie_secure=False,
+        allowed_hosts=["testserver"],
+        docs_enabled=True,
+        ai_vendor_config_file=tmp_path / "unconfigured_vendors.env",
+        ai_task_config_file=tmp_path / "unconfigured_tasks.env",
+    )
+
+
+@pytest.fixture
+def identity_settings() -> IdentityVendorSettings:
+    """Disable external providers without reading local credentials."""
+    return IdentityVendorSettings(
+        _env_file=None,
+        ms_client_id=None,
+        ms_client_secret=None,
+        ms_tenant="common",
+    )
+
+
+@pytest.fixture
+def config_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_ai_environment: None
+) -> Path:
+    """Isolate configuration files and recognized environment variables."""
+    monkeypatch.chdir(tmp_path)
+    for settings_type in (AppSettings, IdentityVendorSettings):
+        for field_name in settings_type.model_fields:
+            monkeypatch.delenv(field_name.upper(), raising=False)
+    return tmp_path
+
+
+@pytest.fixture
+def client(
+    app_settings: AppSettings,
+    identity_settings: IdentityVendorSettings,
+) -> Iterator[TestClient]:
+    """Return a client with a test-only helper for creating a signed session."""
+    app = create_app(app_settings, identity_settings)
+
+    @app.post("/_test/sign-in", include_in_schema=False)
+    def test_sign_in(request: Request) -> Response:
+        request.session[SESSION_USER_KEY] = {
+            "provider": "microsoft",
+            "subject": "test-subject",
+            "display_name": "Ada Lovelace",
+            "email": "ada@example.com",
+        }
+        request.session[CSRF_TOKEN_KEY] = TEST_CSRF_TOKEN
+        return Response(status_code=204)
+
+    with TestClient(app) as test_client:
+        yield test_client
