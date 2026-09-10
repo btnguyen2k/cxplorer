@@ -27,3 +27,35 @@ jobs:
         run: ruff format --check .
       - name: Run unit tests
         run: pytest --cov=src --cov-report=term-missing
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build --tag cxplorer:ci .
+      - name: Start Docker container
+        run: |
+          docker run --detach \
+            --name cxplorer-ci \
+            --publish 127.0.0.1:8000:8000 \
+            --env ENVIRONMENT=production \
+            --env SESSION_SECRET="$(openssl rand -hex 32)" \
+            cxplorer:ci
+      - name: Check application health
+        run: |
+          for _ in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' cxplorer-ci)" != "true" ]; then
+              break
+            fi
+            sleep 1
+          done
+          docker logs cxplorer-ci
+          exit 1
+      - name: Remove Docker container
+        if: always()
+        run: docker rm --force cxplorer-ci || true

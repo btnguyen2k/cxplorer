@@ -1,0 +1,11 @@
+*
+!.dockerignore
+!Dockerfile
+!*.md
+!pyproject.toml
+!app_config.env
+!id_vendor.env
+!ai_vendors.env
+!ai_tasks.env
+!src/
+!src/**

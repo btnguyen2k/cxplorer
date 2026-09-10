@@ -30,22 +30,22 @@ step.
 Public pages and APIs do not require a session. Private pages redirect unauthenticated browser
 requests to the login page, while private APIs return `401 Unauthorized`.
 
-| Access | URL | Purpose |
-|---|---|---|
-| Public | `/` | Landing page |
-| Public | `/login` | Provider-neutral sign-in page |
-| Public | `/api/health` | Health check |
-| Public | `/auth/microsoft/login` | Start Microsoft authentication |
-| Public | `/auth/microsoft/callback` | Complete Microsoft authentication |
-| Private | `/dashboard` | Company source entry and browser-saved reports |
-| Private | `POST /insights` | Verify sources and start a bounded generation job |
-| Private | `/insights/{report_id}` | Progress, sourced report, or browser-cache restoration |
-| Private | `POST /insights/restore` | Restore an authenticated user's signed browser report |
-| Private | `/api/private/insights/{report_id}/status` | Owner-authorized job status |
-| Private | `/api/private/insights/{report_id}/cache` | Signed, compressed report for localStorage |
-| Private | `/insights/{report_id}/download` | Download an owned report as JSON |
-| Private | `/api/private/me` | Current authenticated user |
-| Private | `/auth/logout` | CSRF-protected local logout |
+| Access  | URL                                        | Purpose                                                |
+|---------|--------------------------------------------|--------------------------------------------------------|
+| Public  | `/`                                        | Landing page                                           |
+| Public  | `/login`                                   | Provider-neutral sign-in page                          |
+| Public  | `/api/health`                              | Health check                                           |
+| Public  | `/auth/microsoft/login`                    | Start Microsoft authentication                         |
+| Public  | `/auth/microsoft/callback`                 | Complete Microsoft authentication                      |
+| Private | `/dashboard`                               | Company source entry and browser-saved reports         |
+| Private | `POST /insights`                           | Verify sources and start a bounded generation job      |
+| Private | `/insights/{report_id}`                    | Progress, sourced report, or browser-cache restoration |
+| Private | `POST /insights/restore`                   | Restore an authenticated user's signed browser report  |
+| Private | `/api/private/insights/{report_id}/status` | Owner-authorized job status                            |
+| Private | `/api/private/insights/{report_id}/cache`  | Signed, compressed report for localStorage             |
+| Private | `/insights/{report_id}/download`           | Download an owned report as JSON                       |
+| Private | `/api/private/me`                          | Current authenticated user                             |
+| Private | `/auth/logout`                             | CSRF-protected local logout                            |
 
 ## Sign-in and company insights
 
@@ -362,6 +362,34 @@ or keep the shared `false` default for a single process. Then start the app:
 Open <http://localhost:8000>. The API documentation is available at
 <http://localhost:8000/api/docs> by default outside production. `DOCS_ENABLED` can override this
 through `app_config.local.env` or the environment.
+
+## Docker
+
+Build the Linux image from the repository root:
+
+```powershell
+docker build --tag cxplorer:local .
+```
+
+The image contains the committed shared configuration only. Supply private configuration as
+environment variables; an existing ignored local configuration file can be passed directly:
+
+```powershell
+docker run --rm --publish 8000:8000 `
+  --env-file app_config.local.env `
+  cxplorer:local
+```
+
+For production, set `ENVIRONMENT=production`, a generated `SESSION_SECRET`, and the deployment
+hostname plus the internal health-check host in `ALLOWED_HOSTS`, for example
+`["cxplorer.contoso.com","127.0.0.1"]`. Add another `--env-file` argument for
+`id_vendor.local.env`, `ai_vendors.local.env`, or `ai_tasks.local.env` when those overrides are
+used. Terminate HTTPS at a trusted reverse proxy and configure its forwarded-header trust
+explicitly. Never bake local override files or credentials into the image.
+
+The container listens on port `8000` and includes an `/api/health` health check. It intentionally
+runs one Uvicorn worker because jobs and reports are held in bounded process memory; scaling to
+multiple replicas requires explicit routing and coordination.
 
 ## Microsoft authentication
 
