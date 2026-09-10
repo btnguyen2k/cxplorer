@@ -1,9 +1,37 @@
 """Application and identity-provider configuration with separate dotenv sources."""
 
-from typing import Literal, Self
+import json
+import re
+from pathlib import Path
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from email_validator import EmailNotValidError, validate_email
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+def _normalize_login_email_rule(value: str) -> str:
+    rule = value.strip()
+    if not rule:
+        return ""
+    if len(rule) > 320 or any(character.isspace() for character in rule):
+        raise ValueError("LOGIN_ALLOWED_EMAILS contains an invalid email rule")
+    try:
+        if "*" not in rule:
+            return validate_email(rule, check_deliverability=False).normalized.casefold()
+        if not rule.isascii() or rule.count("@") != 1:
+            raise EmailNotValidError("Invalid wildcard email rule")
+        validate_email(rule.replace("*", "wildcard"), check_deliverability=False)
+    except EmailNotValidError:
+        raise ValueError(
+            "LOGIN_ALLOWED_EMAILS entries must be email addresses or whole-email '*' patterns"
+        ) from None
+    return rule.casefold()
+
+
+def _email_matches_rule(email: str, rule: str) -> bool:
+    expression = re.escape(rule).replace(r"\*", ".*")
+    return re.fullmatch(expression, email, flags=re.IGNORECASE) is not None
 
 
 class AppSettings(BaseSettings):
@@ -25,8 +53,54 @@ class AppSettings(BaseSettings):
         default_factory=lambda: ["localhost", "127.0.0.1"],
         min_length=1,
     )
+    login_allowed_emails: Annotated[tuple[str, ...], NoDecode] = Field(
+        default=(),
+        max_length=100,
+    )
     docs_enabled: bool | None = None
     reload: bool = False
+    ai_vendor_config_file: Path = Path("ai_vendors.env")
+    ai_task_config_file: Path = Path("ai_tasks.env")
+
+    @field_validator("login_allowed_emails", mode="before")
+    @classmethod
+    def normalize_login_allowed_emails(cls, value: object) -> tuple[str, ...]:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return ()
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                try:
+                    value = json.loads(text)
+                except (json.JSONDecodeError, TypeError):
+                    raise ValueError(
+                        "LOGIN_ALLOWED_EMAILS must be a JSON array or comma-separated list"
+                    ) from None
+            else:
+                value = text.split(",")
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("LOGIN_ALLOWED_EMAILS must be a list")
+        normalized_rules = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("LOGIN_ALLOWED_EMAILS entries must be strings")
+            rule = _normalize_login_email_rule(item)
+            if rule:
+                normalized_rules.append(rule)
+        normalized = tuple(normalized_rules)
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("LOGIN_ALLOWED_EMAILS must not contain duplicate rules")
+        return normalized
+
+    def allows_login_email(self, email: str) -> bool:
+        """Return whether a provider-validated email passes the optional login allowlist."""
+        if not self.login_allowed_emails:
+            return True
+        try:
+            normalized = validate_email(email, check_deliverability=False).normalized.casefold()
+        except EmailNotValidError:
+            return False
+        return any(_email_matches_rule(normalized, rule) for rule in self.login_allowed_emails)
 
     @property
     def use_secure_cookies(self) -> bool:

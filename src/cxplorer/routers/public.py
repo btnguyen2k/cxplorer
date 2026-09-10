@@ -45,6 +45,15 @@ def login_page(
             "Your account provider didn't return the details needed to sign in. "
             "Please try another account."
         ),
+        "email_required": (
+            "Your sign-in provider did not share a usable email address. "
+            "Use an account that shares an email address, or ask your administrator "
+            "to enable email sharing."
+        ),
+        "email_not_allowed": (
+            "This email address is not authorized to access CXplorer. "
+            "Use an approved account or contact the administrator."
+        ),
         "not_configured": (
             "Sign-in is not available in this environment yet. Please contact the administrator."
         ),

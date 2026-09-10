@@ -2,6 +2,7 @@
 
 from authlib.integrations.starlette_client import OAuth
 
+from cxplorer.auth.microsoft import MICROSOFT_ISSUER_TEMPLATE
 from cxplorer.config import IdentityVendorSettings
 
 
@@ -16,8 +17,8 @@ def build_oauth(settings: IdentityVendorSettings) -> OAuth:
             if settings.ms_client_secret
             else None,
             server_metadata_url=(
-                "https://login.microsoftonline.com/"
-                f"{settings.ms_tenant}/v2.0/.well-known/openid-configuration"
+                MICROSOFT_ISSUER_TEMPLATE.format(tenantid=settings.ms_tenant)
+                + "/.well-known/openid-configuration"
             ),
             client_kwargs={"scope": "openid profile email"},
         )

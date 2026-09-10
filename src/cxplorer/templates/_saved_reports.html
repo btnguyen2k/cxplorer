@@ -1,0 +1,35 @@
+<div data-saved-report-fragment>
+  {% if cached_entries %}
+    <ul class="saved-report-list" role="list">
+      {% for entry in cached_entries %}
+        <li class="saved-report-card">
+          <div>
+            <h3 class="insight-card-title">
+              <a class="insight-link" href="{{ url_for('insight_report', report_id=entry.report_id) }}">{{ entry.company_name }}</a>
+            </h3>
+            <dl class="saved-report-dates">
+              <div>
+                <dt>Generated</dt>
+                <dd><time datetime="{{ entry.generated_at.isoformat() }}">{{ entry.generated_at.strftime('%d %b %Y, %H:%M %Z') }}</time></dd>
+              </div>
+              <div>
+                <dt>Expires</dt>
+                <dd><time datetime="{{ entry.expires_at.isoformat() }}">{{ entry.expires_at.strftime('%d %b %Y, %H:%M %Z') }}</time></dd>
+              </div>
+            </dl>
+          </div>
+          <div class="insight-actions">
+            <a class="button button--secondary" href="{{ url_for('insight_report', report_id=entry.report_id) }}" aria-label="Open saved report for {{ entry.company_name }}">Open report</a>
+            <button type="button" class="text-button" data-delete-saved="{{ entry.report_id }}" aria-label="Delete saved copy for {{ entry.company_name }}">Delete saved copy</button>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="insight-empty">
+      <h3 class="insight-card-title">No saved reports here yet</h3>
+      <p>Generate insights to save a signed report in this browser. If you used another
+        browser or device, your saved copies stay there. Expired or deleted copies are not listed.</p>
+    </div>
+  {% endif %}
+</div>

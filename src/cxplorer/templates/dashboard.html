@@ -1,12 +1,22 @@
 {% extends "base.html" %}
 
 {% block title %}Workspace — {{ app_name }}{% endblock %}
-{% block description %}Prepare public company URLs in your draft CXplorer workspace. Sources are not saved or fetched in this preview.{% endblock %}
+{% block description %}Prepare official company sources and generate source-backed insights for your executive conversations.{% endblock %}
 {% block html_class %}application-root{% endblock %}
 {% block body_class %}application-page{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', path='/js/workspace-cache.js') }}"></script>
+{% endblock %}
 
 {% block content %}
-  <section class="container workspace" aria-labelledby="workspace-title">
+  <section
+    class="container workspace"
+    aria-labelledby="workspace-title"
+    data-cache-root
+    data-cache-prefix="cxplorer:{{ cache_namespace }}"
+    data-cached-list-url="{{ cached_list_url }}"
+    data-csrf-token="{{ csrf_token }}"
+  >
     <header class="workspace-header">
       <div>
         <p class="section-kicker">Preparation starts here</p>
@@ -21,7 +31,7 @@
             <p class="identity-email">{{ user.email }}</p>
           {% endif %}
         </div>
-        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form" data-sign-out>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="button button--secondary logout-button">
             Sign out
@@ -30,13 +40,15 @@
       </div>
     </header>
 
-    <div class="draft-notice" role="note" aria-labelledby="draft-label">
-      <p id="draft-label" class="badge">Draft preview</p>
-      <p id="draft-status">
-        <strong>URLs aren&rsquo;t saved. No pages are fetched.</strong>
-        Insight generation is not available yet; this is an input preview.
-      </p>
-    </div>
+    {% if errors %}
+      <section class="alert alert--error" role="alert" aria-labelledby="form-errors-title" tabindex="-1" data-form-errors>
+        <h2 id="form-errors-title" class="notice-title">Check your inputs</h2>
+        <ul class="insight-list">
+          {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+        <p>Your submitted values are kept below. A saved draft will not replace them.</p>
+      </section>
+    {% endif %}
 
     <div class="workspace-grid">
       <section class="source-editor" aria-labelledby="sources-title">
@@ -50,8 +62,16 @@
           personal executive profiles, LinkedIn-login pages or paywalled databases.
         </p>
 
-        {# Deliberately not a form: draft URLs must never be submitted, including on Enter. #}
-        <fieldset class="source-group" aria-describedby="source-limit source-eligibility draft-status">
+        <form
+          id="insight-form"
+          method="post"
+          action="{{ url_for('create_insight') }}"
+          data-draft-form
+          data-has-errors="{{ 'true' if errors else 'false' }}"
+        >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="submission_id" value="{{ submission_id }}">
+        <fieldset class="source-group" aria-describedby="source-limit source-eligibility">
           <legend class="source-legend">Core company pages</legend>
 
           <div class="source-field">
@@ -64,7 +84,10 @@
             </p>
             <input
               id="company-homepage"
+              name="homepage_url"
               type="url"
+              value="{{ form_values.get('homepage_url', '') }}"
+              maxlength="2048"
               required
               class="source-input"
               placeholder="https://contoso.example"
@@ -87,7 +110,10 @@
             </p>
             <input
               id="company-about"
+              name="about_url"
               type="url"
+              value="{{ form_values.get('about_url', '') }}"
+              maxlength="2048"
               class="source-input"
               placeholder="https://contoso.example/about"
               aria-describedby="about-priority about-help"
@@ -109,7 +135,10 @@
             </p>
             <input
               id="company-products"
+              name="products_url"
               type="url"
+              value="{{ form_values.get('products_url', '') }}"
+              maxlength="2048"
               class="source-input"
               placeholder="https://contoso.example/products"
               aria-describedby="products-priority products-help"
@@ -122,7 +151,7 @@
           </div>
         </fieldset>
 
-        <details class="source-extras">
+        <details class="source-extras" data-optional-sources {% if form_values.get('source_url_4') or form_values.get('source_url_5') or form_values.get('source_url_6') %}open{% endif %}>
           <summary>
             Optional sources
             <span class="summary-note">Up to 3 more &middot; 6 URLs total</span>
@@ -143,22 +172,31 @@
                     <label for="source-purpose-{{ source_number }}">Purpose for source {{ source_number }}</label>
                     <select
                       id="source-purpose-{{ source_number }}"
+                      name="source_purpose_{{ source_number }}"
                       class="source-input"
                       aria-describedby="optional-purpose-help optional-signals-note"
                     >
-                      <option value="">Choose a purpose</option>
-                      <option value="investors">Investors / annual report</option>
-                      <option value="newsroom">Newsroom / announcement</option>
-                      <option value="trust">Trust / security / compliance</option>
-                      <option value="industry">Industry / customer stories</option>
-                      <option value="careers">Careers / engineering blog</option>
+                      {% for value, label in [
+                        ('', 'Choose a purpose'),
+                        ('investors', 'Investors / annual report'),
+                        ('newsroom', 'Newsroom / announcement'),
+                        ('trust', 'Trust / security / compliance'),
+                        ('industry', 'Industry / customer stories'),
+                        ('careers', 'Careers / engineering blog'),
+                        ('other', 'Other official company page')
+                      ] %}
+                        <option value="{{ value }}" {% if form_values.get('source_purpose_' ~ source_number, '') == value %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
                     </select>
                   </div>
                   <div class="url-field">
                     <label for="source-url-{{ source_number }}">Source {{ source_number }} URL</label>
                     <input
                       id="source-url-{{ source_number }}"
+                      name="source_url_{{ source_number }}"
                       type="url"
+                      value="{{ form_values.get('source_url_' ~ source_number, '') }}"
+                      maxlength="2048"
                       class="source-input"
                       placeholder="https://contoso.example/public-page"
                       aria-describedby="optional-purpose-help source-eligibility"
@@ -175,20 +213,77 @@
           </div>
         </details>
 
+        <fieldset class="source-group audience-picker" aria-describedby="audiences-help">
+          <legend class="source-legend">Choose the room</legend>
+          <p id="audiences-help" class="field-help">
+            Select at least one executive audience. Each gets a distinct conversation brief;
+            shared opportunities keep the same prerequisites and controls.
+          </p>
+          <div class="audience-options">
+            {% for audience, label in audience_labels.items() %}
+              <label class="audience-option" for="audience-{{ audience }}">
+                <input
+                  type="checkbox"
+                  id="audience-{{ audience }}"
+                  name="audiences"
+                  value="{{ audience }}"
+                  {% if audience in selected_audiences %}checked{% endif %}
+                >
+                <span>{{ label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        </fieldset>
+
+        <div class="source-field">
+          <div class="source-label-line">
+            <label for="seller-context">Your selling context</label>
+            <span class="source-priority">Optional</span>
+          </div>
+          <p id="seller-context-help" class="field-help">
+            What do you offer, and what conversation are you preparing for? This is framing,
+            not company evidence. Do not include credentials or confidential customer information.
+            Up to 4,000 characters.
+          </p>
+          <textarea
+            id="seller-context"
+            name="seller_context"
+            class="source-input seller-context"
+            rows="5"
+            maxlength="4000"
+            aria-describedby="seller-context-help"
+            placeholder="For example: I help operations teams improve service workflows. I am preparing for an introductory CIO conversation."
+          >{{ form_values.get('seller_context', '') }}</textarea>
+        </div>
+
+        <div class="source-guide-advice" id="verification-note">
+          <p><strong>Verified before analysis.</strong> Provided URLs are checked for validity,
+            accessibility and the same company. The About page must match the homepage.</p>
+          <p><strong>Official announcements are always searched.</strong> Every generation looks
+            for up to three announcements from the last 90 days, with emphasis on executive
+            announcements. Third-party news is not used.</p>
+        </div>
+
         <div class="draft-actions">
           <button
-            type="button"
-            disabled
-            class="button button--disabled"
-            aria-describedby="generation-status"
+            type="submit"
+            {% if not ai_enabled %}disabled{% endif %}
+            class="button {% if ai_enabled %}button--primary{% else %}button--disabled{% endif %}"
+            aria-describedby="generation-status verification-note"
           >
             Generate insights
           </button>
           <p id="generation-status">
-            Not available in this preview. The planned outcome is source-backed company
-            insights and separate CEO, CTO, CIO, CFO and CISO talk points.
+            {% if ai_enabled %}
+              Generation can take a few minutes. You will see the current stage and can cancel.
+              Gaps and hypotheses are labeled, not presented as verified company facts.
+            {% else %}
+              Generation is disabled on this installation. Ask the operator to configure AI
+              access. You can still edit and save your browser draft.
+            {% endif %}
           </p>
         </div>
+        </form>
       </section>
 
       <aside class="source-guide" aria-labelledby="source-guide-title">
@@ -240,5 +335,51 @@
         </div>
       </aside>
     </div>
+
+    <section class="saved-reports" aria-labelledby="saved-reports-title">
+      <div class="insight-section-heading">
+        <div>
+          <p class="section-kicker">Pick up where you left off</p>
+          <h2 id="saved-reports-title" class="section-title">Saved in this browser</h2>
+        </div>
+        <button type="button" class="button button--secondary" data-history-retry hidden>Refresh saved reports</button>
+      </div>
+      <div class="browser-storage-note" role="note" aria-labelledby="browser-storage-title">
+        <h3 id="browser-storage-title" class="insight-card-title">Browser storage</h3>
+        <p class="browser-storage-copy">
+          Drafts expire seven days after your last edit. Reports expire seven days after
+          generation; reopening does not extend them. Signing out keeps both. Avoid confidential
+          information on shared devices.
+        </p>
+        <div class="browser-storage-status">
+          <p id="draft-status" class="field-help" role="status" aria-live="polite" data-draft-status>
+            Draft saving requires JavaScript and available local storage.
+          </p>
+          <button type="button" class="text-button" data-draft-retry hidden>Retry saving draft</button>
+        </div>
+      </div>
+      <p class="cache-feedback" role="status" aria-live="polite" aria-atomic="true" data-cache-notice></p>
+      <p class="alert alert--error" role="alert" data-cache-warning hidden></p>
+      <p id="saved-reports-help" class="field-help">
+        Only this account&rsquo;s copies on this browser appear here, up to 50 reports.
+        Labels are browser-stored metadata; opening a report verifies its signed contents
+        on the server. Reports are not permanently stored on the server.
+      </p>
+      <p class="cache-feedback" role="status" aria-live="polite" data-history-status>
+        Enable JavaScript and local storage to find your saved copies.
+      </p>
+      <div data-saved-list aria-describedby="saved-reports-help"></div>
+      <details class="source-extras cache-tools">
+        <summary>Manage my browser storage</summary>
+        <div class="source-extras-content">
+          <p class="field-help">
+            Clearing removes this account&rsquo;s draft and saved reports from this browser.
+            It does not sign you out or affect other accounts, unrelated browser data,
+            or files you downloaded. This cannot be undone.
+          </p>
+          <button type="button" class="button button--secondary" data-cache-clear hidden>Clear my browser cache</button>
+        </div>
+      </details>
+    </section>
   </section>
 {% endblock %}

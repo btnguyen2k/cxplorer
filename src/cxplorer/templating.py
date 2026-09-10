@@ -15,6 +15,7 @@ def common_template_context(request: Request) -> dict[str, object]:
     return {
         "app_name": app_settings.app_name,
         "current_year": datetime.now(tz=UTC).year,
+        "ai_enabled": request.app.state.ai_enabled,
     }
 
 

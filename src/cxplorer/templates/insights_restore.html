@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Open saved insights — {{ app_name }}{% endblock %}
+{% block description %}Restore your signed browser copy for secure server-side verification and display.{% endblock %}
+{% block html_class %}application-root{% endblock %}
+{% block body_class %}application-page{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', path='/js/insights-report.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+  <section
+    class="container workspace insight-process"
+    aria-labelledby="restore-title"
+    data-cache-root
+    data-insight-restore
+    data-cache-prefix="cxplorer:{{ cache_namespace }}"
+    data-report-id="{{ report_id }}"
+    data-invalid-cache="{{ 'true' if invalid_cache | default(false) else 'false' }}"
+    data-has-errors="{{ 'true' if error else 'false' }}"
+  >
+    <a class="insight-link workspace-back" href="{{ url_for('dashboard') }}">Back to workspace</a>
+    <header class="insight-header">
+      <p class="section-kicker">Your saved browser copy</p>
+      <h1 id="restore-title" class="page-title">
+        {% if invalid_cache | default(false) %}This saved copy could not be verified.
+        {% elif error %}Your saved report could not be opened.
+        {% else %}Opening saved insights.{% endif %}
+      </h1>
+      <p class="page-lead">
+        The temporary server copy is no longer available. We can send this browser&rsquo;s
+        signed copy back to the server for verification. This does not generate a new report.
+      </p>
+    </header>
+    <div class="insight-panel">
+      <h2 class="insight-card-title">Verify before opening</h2>
+      <p class="field-help">
+        Only the server can check ownership, signature, expiry and report contents, and render
+        your report. Reopening never extends its original seven-day expiry.
+      </p>
+      {% if error %}<p class="alert alert--error" role="alert">{{ error }}</p>{% endif %}
+      <p class="cache-feedback" role="status" aria-live="polite" aria-atomic="true" data-restore-status>
+        Checking for a saved copy requires JavaScript and local storage.
+      </p>
+      <p class="cache-feedback" role="status" aria-live="polite" data-cache-notice></p>
+      <p class="alert alert--error" role="alert" data-cache-warning hidden></p>
+      <form method="post" action="{{ restore_url }}" data-restore-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="report_id" value="{{ report_id }}">
+        <input type="hidden" name="cache_blob" value="">
+        <div class="insight-actions">
+          <button type="submit" class="button button--primary" data-restore-submit hidden>Verify and open saved copy</button>
+          <button type="button" class="button button--secondary" data-restore-retry hidden>Check browser again</button>
+          <a class="insight-link" href="{{ url_for('dashboard') }}">Return to workspace</a>
+        </div>
+      </form>
+      <p class="field-help">
+        No copy here? Check the browser and account you used to generate it. Copies expire
+        after seven days; deleted, expired or unsaved reports cannot be recovered here.
+      </p>
+      <noscript><p class="field-help">JavaScript is off. Browser-stored reports cannot be transported to the server until you enable it.</p></noscript>
+    </div>
+  </section>
+{% endblock %}

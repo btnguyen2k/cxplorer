@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}{% if job.state in ['queued', 'running'] %}Generating insights{% elif job.state == 'failed' %}Generation stopped{% elif job.state == 'cancelled' %}Generation cancelled{% else %}Insights ready{% endif %} — {{ app_name }}{% endblock %}
+{% block description %}Follow the current stage of your company insight generation.{% endblock %}
+{% block html_class %}application-root{% endblock %}
+{% block body_class %}application-page{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', path='/js/insights-progress.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+  {% set active = job.state in ['queued', 'running'] %}
+  {% set progress_by_stage = {
+    'preflight': 10,
+    'verify_sources': 20,
+    'discover_news': 30,
+    'verify_news': 38,
+    'collect_sources': 46,
+    'extract_evidence': 58,
+    'consolidate_evidence': 68,
+    'synthesize_strategy': 76,
+    'generate_talk_points': 84,
+    'repair': 94,
+    'review_report': 94,
+    'complete': 100
+  } %}
+  {% if job.state in ['completed', 'partial'] %}
+    {% set progress_value = 100 %}
+  {% elif job.state == 'running' %}
+    {% set progress_value = progress_by_stage.get(job.stage) %}
+  {% else %}
+    {% set progress_value = none %}
+  {% endif %}
+  {% set stage_label = job.stage | replace('_', ' ') | capitalize %}
+  <section
+    class="container workspace insight-process"
+    aria-labelledby="progress-title"
+    data-insight-progress
+    data-cache-prefix="cxplorer:{{ cache_namespace }}"
+    data-report-id="{{ report_id }}"
+    data-status-url="{{ status_url }}"
+    data-job-state="{{ job.state }}"
+  >
+    <a class="insight-link workspace-back" href="{{ url_for('dashboard') }}">Back to workspace</a>
+    <header class="insight-header">
+      <p class="section-kicker">From sources to conversation</p>
+      <h1 id="progress-title" class="page-title">
+        {% if active %}Building your company brief.
+        {% elif job.state == 'failed' %}Generation stopped.
+        {% elif job.state == 'cancelled' %}Generation cancelled.
+        {% else %}Your report is ready.{% endif %}
+      </h1>
+      <p class="page-lead">
+        {% if active %}
+          We verify the company first, then turn accepted evidence into executive-specific
+          conversations. Each source takes its own time; the stage below reflects work on the server.
+        {% elif job.state == 'cancelled' %}
+          No new generation will start automatically. Your browser draft is still available
+          in the workspace if it was saved.
+        {% elif job.state == 'failed' %}
+          No new generation will start automatically. Review the issue below before trying again.
+        {% else %}
+          Open the server-rendered report to review its evidence and coverage.
+        {% endif %}
+      </p>
+    </header>
+
+    <div class="insight-panel progress-panel">
+      <div class="insight-section-heading">
+        <h2 class="insight-card-title">Current stage</h2>
+        <span class="badge" data-progress-state>{{ job.state | replace('_', ' ') | title }}</span>
+      </div>
+      <div role="status" aria-live="polite" aria-atomic="true">
+        <p id="progress-stage" class="progress-stage" data-progress-stage>{{ stage_label }}</p>
+        <p class="insight-muted" data-progress-message>{{ job.message }}</p>
+      </div>
+      <div class="generation-progress">
+        <div class="generation-progress__summary">
+          <p id="generation-progress-label" class="generation-progress__label">
+            Approximate progress
+          </p>
+          <span class="generation-progress__value" aria-hidden="true" data-progress-value>
+            {% if progress_value is not none %}
+              About {{ progress_value }}%
+            {% elif job.state == 'queued' %}
+              Waiting&hellip;
+            {% elif active %}
+              Working&hellip;
+            {% else %}
+              Stopped
+            {% endif %}
+          </span>
+        </div>
+        <div
+          class="generation-progress__track"
+          role="progressbar"
+          aria-labelledby="generation-progress-label"
+          aria-describedby="progress-stage generation-progress-note"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          {% if progress_value is not none %}aria-valuenow="{{ progress_value }}"{% endif %}
+          aria-valuetext="{% if progress_value is not none %}About {{ progress_value }} percent. {{ stage_label }}.{% elif job.state == 'queued' %}Queued — waiting for generation capacity.{% elif job.state == 'failed' %}Generation stopped during {{ stage_label }}.{% elif job.state == 'cancelled' %}Generation cancelled during {{ stage_label }}.{% else %}In progress — {{ stage_label }}.{% endif %}"
+          data-progress-meter
+          data-progress-active="{{ 'true' if active else 'false' }}"
+          data-progress-level="{{ progress_value if progress_value is not none else 'indeterminate' }}"
+        >
+          <span class="generation-progress__fill" aria-hidden="true"></span>
+        </div>
+        <p id="generation-progress-note" class="generation-progress__note">
+          Estimated from the current server stage. Some stages take longer than others.
+        </p>
+      </div>
+      {% if job.error %}
+        <p class="alert alert--error" role="alert">{{ job.error }}</p>
+      {% endif %}
+      <p class="alert alert--error" role="alert" data-progress-warning hidden></p>
+      <p class="alert alert--error" role="alert" data-cache-warning hidden></p>
+      <div class="insight-actions">
+        {% if active %}
+          <a class="button button--secondary" href="{{ url_for('insight_report', report_id=report_id) }}" data-progress-refresh>Refresh status</a>
+          <button type="button" class="button button--secondary" data-poll-retry hidden>Retry status check</button>
+          <form method="post" action="{{ url_for('cancel_insight', report_id=report_id) }}" data-cancel-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="button button--secondary">Cancel generation</button>
+          </form>
+        {% elif job.state in ['completed', 'partial'] %}
+          <a class="button button--primary" href="{{ url_for('insight_report', report_id=report_id) }}">Open report</a>
+        {% elif can_retry | default(false) %}
+          <form method="post" action="{{ url_for('retry_insight', report_id=report_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="button button--primary">Retry generation</button>
+          </form>
+        {% endif %}
+        <a class="insight-link" href="{{ url_for('dashboard') }}">Return to workspace</a>
+        <a class="insight-link" href="{{ url_for('login_page') }}?next={{ ('/insights/' ~ report_id) | urlencode }}" data-session-link hidden>Sign in again</a>
+      </div>
+      {% if active %}
+        <noscript><p class="field-help">JavaScript is off. Use Refresh status to check progress; generation continues on the server.</p></noscript>
+      {% endif %}
+    </div>
+
+    <div class="source-guide-advice">
+      <p><strong>Always included:</strong> an official-company announcement search covering
+        the last 90 days, up to three announcements, with emphasis on executives.</p>
+      <p>Unrelated, inaccessible or unsupported sources are excluded. Missing evidence and
+        limited audience coverage will be identified in the report.</p>
+      {% if active %}
+        <p>You may leave this page and return to this URL while the server job is available.
+          Unfinished work cannot survive a server restart. A completed report is saved to
+          your browser only when you open it and saving succeeds.</p>
+      {% endif %}
+    </div>
+
+    {% if job.source_outcomes | default([]) %}
+      <section class="insight-section" aria-labelledby="progress-sources-title">
+        <h2 id="progress-sources-title" class="section-title">Source checks so far</h2>
+        <ul class="source-outcome-list" role="list">
+          {% for outcome in job.source_outcomes %}
+            <li class="insight-panel">
+              <span class="badge">{{ outcome.status | capitalize }}</span>
+              <p class="source-address">{{ outcome.url }}</p>
+              <p class="insight-muted">{{ outcome.reason }}</p>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,24 +1,39 @@
 """Validated identity stored in the signed application session."""
 
+import hashlib
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from email_validator import EmailNotValidError, validate_email
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AuthenticationClaimsError(ValueError):
     """Raised when an identity provider omits required validated claims."""
 
 
+class AuthenticationEmailError(AuthenticationClaimsError):
+    """Raised when a provider does not supply a usable email address."""
+
+
 class AuthenticatedUser(BaseModel):
     """Minimal identity data retained after OpenID Connect login."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     provider: Literal["microsoft"]
     subject: str = Field(min_length=1, max_length=255)
     display_name: str = Field(min_length=1, max_length=200)
-    email: str | None = Field(default=None, max_length=320)
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def usable_email(cls, value: str) -> str:
+        return validate_email(value, check_deliverability=False).normalized
+
+    @property
+    def cache_namespace(self) -> str:
+        return hashlib.sha256(self.email.encode("utf-8")).hexdigest()
 
     @classmethod
     def from_microsoft_claims(
@@ -37,7 +52,15 @@ class AuthenticatedUser(BaseModel):
             "preferred_username",
             "email",
         )
-        email = _first_text(claims, "email", "preferred_username")
+        email = _first_text(claims, "email")
+        if email is None:
+            raise AuthenticationEmailError("The identity provider did not supply an email.")
+        try:
+            email = cls.usable_email(email)
+        except EmailNotValidError as error:
+            raise AuthenticationEmailError(
+                "The identity provider did not supply a usable email."
+            ) from error
         return cls(
             provider="microsoft",
             subject=subject.strip(),

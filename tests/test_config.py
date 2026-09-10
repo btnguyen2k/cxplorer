@@ -69,7 +69,9 @@ def _shared_file_policy_issues(path: Path) -> tuple[list[int], list[str]]:
     return invalid_lines, sorted(set(unsafe_keys))
 
 
-@pytest.mark.parametrize("filename", ["app_config.env", "id_vendor.env"])
+@pytest.mark.parametrize(
+    "filename", ["app_config.env", "id_vendor.env", "ai_vendors.env", "ai_tasks.env"]
+)
 def test_shared_sensitive_settings_are_empty_or_placeholders(filename: str) -> None:
     invalid_lines, unsafe_keys = _shared_file_policy_issues(REPOSITORY_ROOT / filename)
     assert not invalid_lines, f"{filename}: invalid dotenv syntax at lines {invalid_lines}"
@@ -88,6 +90,7 @@ def test_shared_policy_accepts_arbitrary_non_sensitive_configuration() -> None:
             "SESSION_COOKIE_SECURE": "false",
             "DOCS_ENABLED": "true",
             "ALLOWED_HOSTS": '["contoso.example"]',
+            "LOGIN_ALLOWED_EMAILS": '["*@contoso.example"]',
             "NEW_FEATURE_ENABLED": "true",
             "API_TOKEN_TTL": "3600",
             "SESSION_MAX_AGE_SECONDS": "7200",
@@ -207,6 +210,59 @@ def test_default_application_name_uses_official_branding() -> None:
     assert settings.app_name == "CXplorer"
 
 
+@pytest.mark.parametrize("value", [None, "", "  ", [], ["", "  "]])
+def test_empty_login_email_allowlist_allows_all(value: object) -> None:
+    settings = AppSettings(
+        _env_file=None,
+        session_secret=TEST_SESSION_SECRET,
+        login_allowed_emails=value,
+    )
+
+    assert settings.login_allowed_emails == ()
+    assert settings.allows_login_email("seller@contoso.example")
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        '["Seller@Contoso.Example","*@partners.contoso.example"]',
+        "Seller@Contoso.Example, *@partners.contoso.example",
+    ],
+)
+def test_login_email_allowlist_matches_exact_addresses_and_whole_patterns(
+    monkeypatch: pytest.MonkeyPatch, configured: str
+) -> None:
+    monkeypatch.setenv("LOGIN_ALLOWED_EMAILS", configured)
+    settings = AppSettings(_env_file=None, session_secret=TEST_SESSION_SECRET)
+
+    assert settings.login_allowed_emails == (
+        "seller@contoso.example",
+        "*@partners.contoso.example",
+    )
+    assert settings.allows_login_email("SELLER@contoso.example")
+    assert settings.allows_login_email("anyone@partners.contoso.example")
+    assert not settings.allows_login_email("seller@other.contoso.example")
+    assert not settings.allows_login_email("seller@partners.contoso.example.evil")
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        '["not-an-email"]',
+        '["*@invalid-domain"]',
+        "[123]",
+        '["*@contoso.example","*@CONTOSO.EXAMPLE"]',
+    ],
+)
+def test_invalid_login_email_allowlist_fails_configuration(configured: str) -> None:
+    with pytest.raises(ValidationError, match="LOGIN_ALLOWED_EMAILS"):
+        AppSettings(
+            _env_file=None,
+            session_secret=TEST_SESSION_SECRET,
+            login_allowed_emails=configured,
+        )
+
+
 @pytest.mark.parametrize(
     ("client_id", "client_secret"),
     [
@@ -260,7 +316,8 @@ def test_settings_load_their_designated_files(config_directory: Path) -> None:
         "ENVIRONMENT=production\n"
         "RELOAD=true\n"
         "SESSION_MAX_AGE_SECONDS=3600\n"
-        'ALLOWED_HOSTS=["testserver"]\n',
+        'ALLOWED_HOSTS=["testserver"]\n'
+        'LOGIN_ALLOWED_EMAILS=["seller@contoso.example","*@partners.contoso.example"]\n',
         encoding="utf-8",
     )
     (config_directory / "id_vendor.env").write_text(
@@ -278,6 +335,10 @@ def test_settings_load_their_designated_files(config_directory: Path) -> None:
     assert application.reload is True
     assert application.session_max_age_seconds == 3600
     assert application.allowed_hosts == ["testserver"]
+    assert application.login_allowed_emails == (
+        "seller@contoso.example",
+        "*@partners.contoso.example",
+    )
     assert application.use_secure_cookies is True
     assert application.expose_api_docs is False
     assert identity.ms_client_id == "contoso-client"

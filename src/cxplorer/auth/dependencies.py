@@ -50,3 +50,19 @@ def get_or_create_csrf_token(request: Request) -> str:
     token = secrets.token_urlsafe(32)
     request.session[CSRF_TOKEN_KEY] = token
     return token
+
+
+def validate_csrf_token(request: Request, token: object) -> None:
+    """Validate a submitted browser token without accepting another session's token."""
+    expected = request.session.get(CSRF_TOKEN_KEY)
+    if (
+        not isinstance(token, str)
+        or not isinstance(expected, str)
+        or not expected
+        or len(token) > 128
+        or not secrets.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+        )

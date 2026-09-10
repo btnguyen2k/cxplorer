@@ -148,7 +148,7 @@ def test_landing_page_focuses_on_business_outcomes(client: TestClient, signed_in
 
 
 @pytest.mark.parametrize("signed_in", [False, True])
-def test_landing_states_that_insights_are_not_generated_yet(
+def test_landing_discloses_disabled_generation_and_illustrative_sample(
     client: TestClient, signed_in: bool
 ) -> None:
     if signed_in:
@@ -157,8 +157,9 @@ def test_landing_states_that_insights_are_not_generated_yet(
     response = client.get("/")
     page = RenderedPage(response.text)
 
-    assert "Insight generation is not available yet." in page.text
-    assert "An illustrative brief showing what CXplorer is being built to produce." in page.text
+    assert "Insight generation needs operator-configured AI access." in page.text
+    assert "An illustrative brief, not a generated company report." in page.text
+    assert "Preview" not in page.text
 
     captions = [
         attributes
@@ -218,7 +219,7 @@ def test_landing_actions_use_existing_destinations(
     assert "unsafe-inline" not in response.headers["content-security-policy"]
 
 
-def test_landing_preview_is_labelled_and_inert(client: TestClient) -> None:
+def test_landing_sample_is_labelled_and_inert(client: TestClient) -> None:
     page = RenderedPage(client.get("/").text)
 
     assert "Contoso" in page.text
@@ -237,7 +238,7 @@ def test_landing_preview_is_labelled_and_inert(client: TestClient) -> None:
     ):
         assert talking_point in page.text
 
-    # The preview illustrates the product; it must not pose as a working generator.
+    # The illustrative sample must not pose as a working generator.
     assert not {"form", "input", "button", "select", "textarea"} & {tag for tag, _ in page.elements}
     assert not any(
         attributes.get("role") in {"button", "tab", "textbox", "combobox"}
@@ -350,6 +351,11 @@ def test_unconfigured_login_has_no_working_provider_action(client: TestClient) -
             "Please try another account.",
         ),
         (
+            "email_not_allowed",
+            "This email address is not authorized to access CXplorer. "
+            "Use an approved account or contact the administrator.",
+        ),
+        (
             "not_configured",
             "Sign-in is not available in this environment yet. Please contact the administrator.",
         ),
@@ -459,33 +465,37 @@ def test_workspace_has_six_accessible_draft_url_inputs(client: TestClient) -> No
         assert not attributes.get("value")
 
 
-def test_workspace_draft_cannot_submit_or_generate_insights(client: TestClient) -> None:
+def test_workspace_submission_and_logout_have_separate_csrf_protected_forms(
+    client: TestClient,
+) -> None:
     assert client.post("/_test/sign-in").status_code == 204
     page = RenderedPage(client.get("/dashboard").text)
     forms = [attributes for tag, attributes in page.elements if tag == "form"]
 
-    assert len(forms) == 1
-    assert (forms[0].get("method") or "").casefold() == "post"
-    assert urlsplit(forms[0].get("action") or "").path == "/auth/logout"
-    assert not any(
-        tag in {"select", "textarea"} or attributes.get("type") == "url"
-        for tag, attributes in page.form_controls
-    )
+    assert len(forms) == 2
+    assert all((form.get("method") or "").casefold() == "post" for form in forms)
+    assert {urlsplit(form.get("action") or "").path for form in forms} == {
+        "/auth/logout",
+        "/insights",
+    }
+    assert sum(attributes.get("type") == "url" for _, attributes in page.form_controls) == 6
     csrf_fields = [
         attributes
         for tag, attributes in page.form_controls
         if tag == "input" and attributes.get("name") == "csrf_token"
     ]
-    assert len(csrf_fields) == 1
-    assert csrf_fields[0].get("type") == "hidden"
-    assert csrf_fields[0].get("value") == TEST_CSRF_TOKEN
-    draft_actions = [
+    assert len(csrf_fields) == 2
+    assert all(field.get("type") == "hidden" for field in csrf_fields)
+    assert all(field.get("value") == TEST_CSRF_TOKEN for field in csrf_fields)
+    generate_actions = [
         attributes
         for tag, attributes in page.elements
-        if tag == "button" and attributes.get("type") == "button"
+        if tag == "button"
+        and attributes.get("type") == "submit"
+        and "generation-status" in (attributes.get("aria-describedby") or "")
     ]
-    assert draft_actions
-    assert all("disabled" in attributes for attributes in draft_actions)
+    assert len(generate_actions) == 1
+    assert "disabled" in generate_actions[0]
     assert "draft" in page.text.casefold()
     assert "test-subject" not in page.text
 
@@ -513,12 +523,15 @@ def test_workspace_outlines_the_planned_sources_and_draft_limits(client: TestCli
         "Careers & engineering blogs",
         "lower-confidence signals",
         "not proof of installed technology",
-        "No pages are fetched.",
-        "Insight generation is not available yet",
-        "CEO, CTO, CIO, CFO and CISO",
+        "Official announcements are always searched.",
+        "last 90 days",
     ):
         assert copy in page.text
-    assert "URLs aren\u2019t saved." in page.text
+    assert "Signing out keeps both." in page.text
+    assert not any(
+        attributes.get("name") in {"news", "include_news", "web_search"}
+        for _, attributes in page.form_controls
+    )
 
     options = [attributes.get("value") for tag, attributes in page.elements if tag == "option"]
     for purpose in ("", "investors", "newsroom", "trust", "industry", "careers"):
@@ -537,7 +550,11 @@ def test_account_pages_keep_semantic_markup_and_strict_csp(
     page = RenderedPage(response.text)
 
     assert len([heading for heading in page.headings if heading["tag"] == "h1"]) == 1
-    assert not {"script", "style"} & {tag for tag, _ in page.elements}
+    assert "style" not in {tag for tag, _ in page.elements}
+    for tag, attributes in page.elements:
+        if tag == "script":
+            assert urlsplit(attributes.get("src") or "").path.startswith("/static/js/")
+            assert attributes.get("type") == "module"
     assert not any(
         name == "style" or name.startswith("on")
         for _, attributes in page.elements
@@ -545,6 +562,8 @@ def test_account_pages_keep_semantic_markup_and_strict_csp(
     )
     assert "script-src 'self'; style-src 'self'" in response.headers["content-security-policy"]
     assert "unsafe-inline" not in response.headers["content-security-policy"]
+    assert "draft preview" not in page.text.casefold()
+    assert "non-production" not in page.text.casefold()
 
 
 def test_logout_requires_csrf_token_and_clears_session(client: TestClient) -> None:

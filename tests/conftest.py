@@ -1,5 +1,6 @@
 """Shared test fixtures."""
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,7 +17,15 @@ TEST_SESSION_SECRET = "test-session-secret-with-at-least-32-characters"
 
 
 @pytest.fixture
-def app_settings() -> AppSettings:
+def isolated_ai_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep application tests independent of operator AI credentials."""
+    for name in tuple(os.environ):
+        if name.upper().startswith(("CX_AI", "AZURE_")):
+            monkeypatch.delenv(name)
+
+
+@pytest.fixture
+def app_settings(tmp_path: Path, isolated_ai_environment: None) -> AppSettings:
     """Return isolated application settings that are safe for the HTTP test client."""
     return AppSettings(
         _env_file=None,
@@ -25,6 +34,8 @@ def app_settings() -> AppSettings:
         session_cookie_secure=False,
         allowed_hosts=["testserver"],
         docs_enabled=True,
+        ai_vendor_config_file=tmp_path / "unconfigured_vendors.env",
+        ai_task_config_file=tmp_path / "unconfigured_tasks.env",
     )
 
 
@@ -40,7 +51,9 @@ def identity_settings() -> IdentityVendorSettings:
 
 
 @pytest.fixture
-def config_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def config_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_ai_environment: None
+) -> Path:
     """Isolate configuration files and recognized environment variables."""
     monkeypatch.chdir(tmp_path)
     for settings_type in (AppSettings, IdentityVendorSettings):

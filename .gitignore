@@ -153,9 +153,13 @@ activemq-data/
 .env
 app_config.local.env
 id_vendor.local.env
+ai_vendors.local.env
+ai_tasks.local.env
 # Shared defaults remain trackable even when global rules ignore dotenv files.
 !app_config.env
 !id_vendor.env
+!ai_vendors.env
+!ai_tasks.env
 .envrc
 .venv
 env/

@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+import pytest
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
@@ -30,7 +31,9 @@ class FakeMicrosoftClient:
         self.prompt = prompt
         return RedirectResponse("https://login.microsoftonline.test/authorize")
 
-    async def authorize_access_token(self, request: Request) -> dict[str, object]:
+    async def authorize_access_token(
+        self, request: Request, **_kwargs: object
+    ) -> dict[str, object]:
         return {
             "access_token": "access-token-that-must-not-be-stored",
             "id_token": "id-token-that-must-not-be-stored",
@@ -62,7 +65,7 @@ def test_microsoft_callback_establishes_minimal_session(app_settings: AppSetting
         {
             "sub": "microsoft-subject",
             "name": "Grace Hopper",
-            "preferred_username": "grace@example.com",
+            "email": "grace@example.com",
         }
     )
     app = create_app(app_settings, microsoft_settings())
@@ -107,6 +110,65 @@ def test_microsoft_callback_rejects_incomplete_identity(app_settings: AppSetting
     assert current_user.status_code == 401
 
 
+@pytest.mark.parametrize(
+    ("rule", "email"),
+    [
+        ("seller@contoso.example", "SELLER@contoso.example"),
+        ("*@partners.contoso.example", "seller@partners.contoso.example"),
+    ],
+)
+def test_microsoft_callback_accepts_configured_email_rules(
+    app_settings: AppSettings, rule: str, email: str
+) -> None:
+    restricted = app_settings.model_copy(update={"login_allowed_emails": (rule,)})
+    app = create_app(restricted, microsoft_settings())
+    app.state.oauth = FakeOAuth(
+        FakeMicrosoftClient(
+            {
+                "sub": "contoso-seller",
+                "name": "Contoso seller",
+                "email": email,
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/auth/microsoft/callback", follow_redirects=False)
+        current_user = client.get("/api/private/me")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+    assert current_user.status_code == 200
+
+
+def test_microsoft_callback_rejects_email_outside_configured_allowlist(
+    app_settings: AppSettings,
+) -> None:
+    restricted = app_settings.model_copy(
+        update={"login_allowed_emails": ("approved@contoso.example",)}
+    )
+    app = create_app(restricted, microsoft_settings())
+    app.state.oauth = FakeOAuth(
+        FakeMicrosoftClient(
+            {
+                "sub": "contoso-seller",
+                "name": "Contoso seller",
+                "email": "other@contoso.example",
+            }
+        )
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/auth/microsoft/callback", follow_redirects=False)
+        current_user = client.get("/api/private/me")
+        login = client.get(response.headers["location"])
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/login?error=email_not_allowed")
+    assert current_user.status_code == 401
+    assert "This email address is not authorized to access CXplorer." in login.text
+
+
 def test_default_sign_in_opens_the_draft_workspace(app_settings: AppSettings) -> None:
     app = create_app(app_settings, microsoft_settings())
     app.state.oauth = FakeOAuth(
@@ -133,9 +195,11 @@ def test_default_sign_in_opens_the_draft_workspace(app_settings: AppSettings) ->
     assert "draft" in workspace.text.casefold()
 
 
-def test_identity_without_a_display_name_uses_a_neutral_fallback() -> None:
-    user = AuthenticatedUser.from_microsoft_claims({"sub": "contoso-seller"})
+def test_identity_without_a_display_name_uses_its_provider_email() -> None:
+    user = AuthenticatedUser.from_microsoft_claims(
+        {"sub": "contoso-seller", "email": "seller@contoso.example"}
+    )
 
-    assert user.display_name == "CXplorer user"
+    assert user.display_name == "seller@contoso.example"
     assert user.provider == "microsoft"
-    assert user.email is None
+    assert user.email == "seller@contoso.example"

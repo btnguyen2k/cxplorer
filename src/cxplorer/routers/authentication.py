@@ -9,16 +9,24 @@ from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from httpx import HTTPError
+from httpx2 import HTTPError as HTTPX2Error
+from joserfc.errors import JoseError
 from pydantic import ValidationError
 
 from cxplorer.auth.dependencies import (
     CSRF_TOKEN_KEY,
     SESSION_USER_KEY,
     require_user,
+    validate_csrf_token,
 )
-from cxplorer.auth.models import AuthenticatedUser, AuthenticationClaimsError
+from cxplorer.auth.microsoft import microsoft_claims_options
+from cxplorer.auth.models import (
+    AuthenticatedUser,
+    AuthenticationClaimsError,
+    AuthenticationEmailError,
+)
 from cxplorer.auth.redirects import safe_local_path
-from cxplorer.config import IdentityVendorSettings
+from cxplorer.config import AppSettings, IdentityVendorSettings
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +78,14 @@ async def microsoft_callback(request: Request) -> RedirectResponse:
 
     client = _microsoft_client(request)
     try:
-        token = await client.authorize_access_token(request)
+        token = await client.authorize_access_token(
+            request,
+            claims_options=microsoft_claims_options(client, identity_settings),
+        )
         claims = token.get("userinfo")
         if not isinstance(claims, Mapping):
             claims = await client.userinfo(token=token)
-    except (HTTPError, OAuthError) as error:
+    except (HTTPError, HTTPX2Error, OAuthError, JoseError) as error:
         logger.warning("Microsoft OAuth callback failed: %s", type(error).__name__)
         request.session.clear()
         return _login_error_response(request, "authentication_failed")
@@ -83,10 +94,20 @@ async def microsoft_callback(request: Request) -> RedirectResponse:
         if not isinstance(claims, Mapping):
             raise AuthenticationClaimsError("Microsoft did not return identity claims")
         user = AuthenticatedUser.from_microsoft_claims(claims)
+    except AuthenticationEmailError:
+        logger.warning("Identity provider did not return a usable email")
+        request.session.clear()
+        return _login_error_response(request, "email_required")
     except (AuthenticationClaimsError, ValidationError):
         logger.warning("Microsoft returned invalid identity claims")
         request.session.clear()
         return _login_error_response(request, "invalid_identity")
+
+    app_settings: AppSettings = request.app.state.app_settings
+    if not app_settings.allows_login_email(user.email):
+        logger.warning("Login rejected by the configured email allowlist")
+        request.session.clear()
+        return _login_error_response(request, "email_not_allowed")
 
     destination = safe_local_path(request.session.get(POST_AUTH_REDIRECT_KEY))
     request.session.clear()
@@ -102,16 +123,7 @@ def logout(
     _user: Annotated[AuthenticatedUser, Depends(require_user)],
 ) -> RedirectResponse:
     """Clear the local session after validating the anti-CSRF token."""
-    expected_token = request.session.get(CSRF_TOKEN_KEY)
-    if (
-        not isinstance(expected_token, str)
-        or not expected_token
-        or not secrets.compare_digest(csrf_token, expected_token)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid CSRF token",
-        )
+    validate_csrf_token(request, csrf_token)
 
     request.session.clear()
     return RedirectResponse(url=str(request.url_for("landing_page")), status_code=303)

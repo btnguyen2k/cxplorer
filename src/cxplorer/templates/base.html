@@ -10,6 +10,7 @@
     >
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+    {% block scripts %}{% endblock %}
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <a href="#main-content" class="skip-link">

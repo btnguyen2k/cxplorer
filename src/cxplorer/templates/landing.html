@@ -134,12 +134,14 @@
             </dl>
           </div>
         </div>
-
         <figcaption id="lp-availability" class="lp-availability">
-          <span class="badge">Preview</span>
           <span>
-            An illustrative brief showing what {{ app_name }} is being built to produce.
-            Insight generation is not available yet.
+            An illustrative brief, not a generated company report.
+            {% if ai_enabled %}
+              Generate source-backed insights from your workspace.
+            {% else %}
+              Insight generation needs operator-configured AI access. You can still prepare your sources.
+            {% endif %}
           </span>
         </figcaption>
       </figure>
