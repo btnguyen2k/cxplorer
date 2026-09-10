@@ -1,6 +1,7 @@
 """Configuration behavior tests."""
 
 import re
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from pydantic import ValidationError
 
 from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
-from tests.conftest import TEST_SESSION_SECRET
+from tests.conftest import TEST_APP_NAME, TEST_SESSION_SECRET
 
 pytestmark = pytest.mark.usefixtures("config_directory")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -201,19 +202,30 @@ def test_shared_policy_reports_invalid_syntax_without_values(config_directory: P
     assert _shared_file_policy_issues(path) == ([1], [])
 
 
-def test_default_application_name_uses_official_branding() -> None:
-    settings = AppSettings(
-        _env_file=None,
-        session_secret=TEST_SESSION_SECRET,
-    )
+def test_package_version_comes_from_the_runtime_module() -> None:
+    configuration = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
-    assert settings.app_name == "CXplorer"
+    assert "version" not in configuration["project"]
+    assert "version" in configuration["project"]["dynamic"]
+    assert configuration["tool"]["hatch"]["version"]["path"] == "src/cxplorer/__init__.py"
+
+
+def test_shared_application_name_uses_official_branding() -> None:
+    settings = AppSettings(_env_file=REPOSITORY_ROOT / "app_config.env")
+
+    assert settings.app_name == TEST_APP_NAME
+
+
+def test_application_name_is_required_without_app_config() -> None:
+    with pytest.raises(ValidationError, match="app_name"):
+        AppSettings(_env_file=None, session_secret=TEST_SESSION_SECRET)
 
 
 @pytest.mark.parametrize("value", [None, "", "  ", [], ["", "  "]])
 def test_empty_login_email_allowlist_allows_all(value: object) -> None:
     settings = AppSettings(
         _env_file=None,
+        app_name=TEST_APP_NAME,
         session_secret=TEST_SESSION_SECRET,
         login_allowed_emails=value,
     )
@@ -233,7 +245,11 @@ def test_login_email_allowlist_matches_exact_addresses_and_whole_patterns(
     monkeypatch: pytest.MonkeyPatch, configured: str
 ) -> None:
     monkeypatch.setenv("LOGIN_ALLOWED_EMAILS", configured)
-    settings = AppSettings(_env_file=None, session_secret=TEST_SESSION_SECRET)
+    settings = AppSettings(
+        _env_file=None,
+        app_name=TEST_APP_NAME,
+        session_secret=TEST_SESSION_SECRET,
+    )
 
     assert settings.login_allowed_emails == (
         "seller@contoso.example",
@@ -258,6 +274,7 @@ def test_invalid_login_email_allowlist_fails_configuration(configured: str) -> N
     with pytest.raises(ValidationError, match="LOGIN_ALLOWED_EMAILS"):
         AppSettings(
             _env_file=None,
+            app_name=TEST_APP_NAME,
             session_secret=TEST_SESSION_SECRET,
             login_allowed_emails=configured,
         )
@@ -286,6 +303,7 @@ def test_microsoft_credentials_must_be_configured_together(
 def test_production_defaults_are_secure() -> None:
     settings = AppSettings(
         _env_file=None,
+        app_name=TEST_APP_NAME,
         environment="production",
         session_secret=TEST_SESSION_SECRET,
     )
@@ -312,6 +330,7 @@ def test_ms_environment_variables_configure_microsoft_auth(
 
 def test_settings_load_their_designated_files(config_directory: Path) -> None:
     (config_directory / "app_config.env").write_text(
+        f"APP_NAME={TEST_APP_NAME}\n"
         f"SESSION_SECRET={TEST_SESSION_SECRET}\n"
         "ENVIRONMENT=production\n"
         "RELOAD=true\n"
@@ -330,6 +349,7 @@ def test_settings_load_their_designated_files(config_directory: Path) -> None:
     application = AppSettings()
     identity = IdentityVendorSettings()
 
+    assert application.app_name == TEST_APP_NAME
     assert application.session_secret.get_secret_value() == TEST_SESSION_SECRET
     assert application.environment == "production"
     assert application.reload is True
@@ -351,7 +371,8 @@ def test_settings_load_their_designated_files(config_directory: Path) -> None:
 
 def test_local_settings_override_shared_defaults(config_directory: Path) -> None:
     (config_directory / "app_config.env").write_text(
-        "RELOAD=false\nSESSION_MAX_AGE_SECONDS=3600\n", encoding="utf-8"
+        f"APP_NAME={TEST_APP_NAME}\nRELOAD=false\nSESSION_MAX_AGE_SECONDS=3600\n",
+        encoding="utf-8",
     )
     (config_directory / "app_config.local.env").write_text(
         f"SESSION_SECRET={TEST_SESSION_SECRET}\nRELOAD=true\n", encoding="utf-8"
@@ -379,6 +400,7 @@ def test_local_settings_override_shared_defaults(config_directory: Path) -> None
 
 def test_settings_do_not_read_the_other_file(config_directory: Path) -> None:
     (config_directory / "app_config.env").write_text(
+        f"APP_NAME={TEST_APP_NAME}\n"
         f"SESSION_SECRET={TEST_SESSION_SECRET}\n"
         "MS_CLIENT_ID=wrong-file-client\n"
         "MS_CLIENT_SECRET=wrong-file-secret\n",
@@ -411,7 +433,9 @@ def test_environment_variables_override_each_file(
     config_directory: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (config_directory / "app_config.env").write_text(
-        f"SESSION_SECRET={TEST_SESSION_SECRET}\nRELOAD=true\nENVIRONMENT=production\n",
+        f"APP_NAME={TEST_APP_NAME}\n"
+        f"SESSION_SECRET={TEST_SESSION_SECRET}\n"
+        "RELOAD=true\nENVIRONMENT=production\n",
         encoding="utf-8",
     )
     (config_directory / "id_vendor.env").write_text(
@@ -450,7 +474,7 @@ def test_legacy_env_file_is_not_loaded(config_directory: Path) -> None:
     )
 
     with pytest.raises(ValidationError, match="session_secret"):
-        AppSettings()
+        AppSettings(app_name=TEST_APP_NAME)
     assert IdentityVendorSettings().microsoft_auth_enabled is False
 
 
@@ -469,7 +493,11 @@ def test_file_loading_can_be_disabled(config_directory: Path) -> None:
         encoding="utf-8",
     )
 
-    application = AppSettings(_env_file=None, session_secret=TEST_SESSION_SECRET)
+    application = AppSettings(
+        _env_file=None,
+        app_name=TEST_APP_NAME,
+        session_secret=TEST_SESSION_SECRET,
+    )
     identity = IdentityVendorSettings(_env_file=None)
 
     assert application.reload is False
@@ -495,7 +523,11 @@ def test_empty_vendor_credentials_disable_sign_in(config_directory: Path) -> Non
 
 def test_configuration_errors_do_not_print_secret_values() -> None:
     with pytest.raises(ValidationError) as application_error:
-        AppSettings(_env_file=None, session_secret="short-secret")
+        AppSettings(
+            _env_file=None,
+            app_name=TEST_APP_NAME,
+            session_secret="short-secret",
+        )
     with pytest.raises(ValidationError) as identity_error:
         IdentityVendorSettings(_env_file=None, ms_client_secret="unpaired-client-secret")
 
@@ -507,7 +539,7 @@ def test_configuration_errors_do_not_print_secret_values() -> None:
 
 def test_factory_loads_separate_settings_by_default(config_directory: Path) -> None:
     (config_directory / "app_config.env").write_text(
-        'ENVIRONMENT=test\nALLOWED_HOSTS=["testserver"]\n',
+        f'APP_NAME={TEST_APP_NAME}\nENVIRONMENT=test\nALLOWED_HOSTS=["testserver"]\n',
         encoding="utf-8",
     )
     (config_directory / "app_config.local.env").write_text(

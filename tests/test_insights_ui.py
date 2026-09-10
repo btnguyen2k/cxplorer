@@ -22,6 +22,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from cxplorer import __version__
 from cxplorer.insights.schemas import AcceptedReport
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -232,6 +233,7 @@ def context_fixture(**overrides):
     report = report_fixture()
     result = {
         "app_name": "CXplorer",
+        "app_version": __version__,
         "current_year": NOW.year,
         "user": SimpleNamespace(display_name="Contoso seller", email="seller@contoso.example"),
         "csrf_token": "ui-fixture-csrf",

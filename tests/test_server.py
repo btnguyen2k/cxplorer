@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import server
 
-from tests.conftest import TEST_SESSION_SECRET
+from tests.conftest import TEST_APP_NAME, TEST_SESSION_SECRET
 
 pytestmark = pytest.mark.usefixtures("config_directory")
 
@@ -24,7 +24,11 @@ def test_launcher_settings_parse_reload(
 ) -> None:
     monkeypatch.setenv("RELOAD", value)
 
-    settings = server.AppSettings(_env_file=None, session_secret=TEST_SESSION_SECRET)
+    settings = server.AppSettings(
+        _env_file=None,
+        app_name=TEST_APP_NAME,
+        session_secret=TEST_SESSION_SECRET,
+    )
 
     assert settings.reload is expected
 
@@ -50,7 +54,10 @@ def test_main_loads_app_config_and_passes_reload_to_uvicorn(
     expected: bool,
 ) -> None:
     call: dict[str, object] = {}
-    (config_directory / "app_config.env").write_text(f"RELOAD={file_value}\n", encoding="utf-8")
+    (config_directory / "app_config.env").write_text(
+        f"APP_NAME={TEST_APP_NAME}\nRELOAD={file_value}\n",
+        encoding="utf-8",
+    )
     local_configuration = f"SESSION_SECRET={TEST_SESSION_SECRET}\n"
     if local_value is not None:
         local_configuration += f"RELOAD={local_value}\n"

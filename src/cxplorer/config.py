@@ -44,7 +44,7 @@ class AppSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    app_name: str = "CXplorer"
+    app_name: str
     environment: Literal["development", "test", "production"] = "development"
     session_secret: SecretStr = Field(min_length=32)
     session_cookie_secure: bool | None = None

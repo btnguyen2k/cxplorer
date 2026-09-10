@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from cxplorer import __version__
 from cxplorer.auth.oauth import build_oauth
 from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.insights.cache import ReportCache
@@ -140,7 +141,7 @@ def create_app(
 
     app = FastAPI(
         title=app_settings.app_name,
-        version="0.1.0",
+        version=__version__,
         docs_url=docs_url,
         redoc_url=None,
         openapi_url=openapi_url,

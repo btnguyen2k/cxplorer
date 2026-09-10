@@ -1,5 +1,6 @@
 """Public and private route behavior tests."""
 
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
@@ -7,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from cxplorer import __version__
 from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
 from tests.conftest import TEST_CSRF_TOKEN
@@ -85,6 +87,26 @@ def test_public_routes_are_available(client: TestClient) -> None:
     assert "Sign in" in RenderedPage(login.text).text
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
+
+
+def test_application_uses_the_global_package_version(client: TestClient) -> None:
+    response = client.get("/api/openapi.json")
+
+    assert response.status_code == 200
+    assert client.app.version == __version__
+    assert response.json()["info"]["version"] == __version__
+
+
+def test_footer_uses_the_configured_name_and_global_version(
+    app_settings: AppSettings,
+    identity_settings: IdentityVendorSettings,
+) -> None:
+    configured_name = "Contoso Seller Intelligence"
+    configured_settings = app_settings.model_copy(update={"app_name": configured_name})
+    with TestClient(create_app(configured_settings, identity_settings)) as client:
+        page = RenderedPage(client.get("/").text)
+
+    assert f"© {datetime.now(tz=UTC).year} {configured_name} · Version {__version__}" in page.text
 
 
 @pytest.mark.parametrize("signed_in", [False, True])

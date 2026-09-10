@@ -12,6 +12,7 @@ from cxplorer.auth.dependencies import CSRF_TOKEN_KEY, SESSION_USER_KEY
 from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
 
+TEST_APP_NAME = "CXplorer"
 TEST_CSRF_TOKEN = "test-csrf-token"
 TEST_SESSION_SECRET = "test-session-secret-with-at-least-32-characters"
 
@@ -29,6 +30,7 @@ def app_settings(tmp_path: Path, isolated_ai_environment: None) -> AppSettings:
     """Return isolated application settings that are safe for the HTTP test client."""
     return AppSettings(
         _env_file=None,
+        app_name=TEST_APP_NAME,
         environment="test",
         session_secret=TEST_SESSION_SECRET,
         session_cookie_secure=False,
