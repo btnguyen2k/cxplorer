@@ -1534,21 +1534,50 @@ class InsightsPipeline:
                 for host in domains
             ],
         }
-        result = await self._one(
-            state,
-            CallSpec(
-                "discover_news", "discover_news", data, NewsDiscovery, lambda _: None, domains
-            ),
-        )
-        assert isinstance(result, NewsDiscovery)
+        result: NewsDiscovery | None = None
+        try:
+            generated = await self._one(
+                state,
+                CallSpec(
+                    "discover_news", "discover_news", data, NewsDiscovery, lambda _: None, domains
+                ),
+            )
+        except TaskFailure as error:
+            if error.code != "search_scope_violation":
+                raise
+            state.failures.pop("discover_news", None)
+            state.terminal_tasks.discard("discover_news")
+            state.executor.unprotect("discover_news")
+            self._gap(
+                state,
+                "official_news",
+                "Official announcement search warning: the provider returned references outside "
+                "the independently verified company hosts. The complete search result was excluded, "
+                "and generation continued using only independently verified supplied sources.",
+            )
+            logger.warning(
+                "Insight news search scope recovery: status=continued "
+                "code=search_scope_violation result=excluded"
+            )
+            progress(
+                "discover_news",
+                "Out-of-scope search results were excluded; continuing with verified official sources.",
+            )
+        else:
+            assert isinstance(generated, NewsDiscovery)
+            result = generated
         for seed in request.seeds:
             if seed.purpose == "news":
                 source_id = state.url_documents[seed.url]
                 if source_id != state.homepage_id and source_id not in state.news_source_ids:
                     state.news_source_ids.append(source_id)
-        candidates = sorted(
-            enumerate(result.announcements),
-            key=lambda pair: (pair[1].executive_name is None, pair[0]),
+        candidates = (
+            sorted(
+                enumerate(result.announcements),
+                key=lambda pair: (pair[1].executive_name is None, pair[0]),
+            )
+            if result is not None
+            else []
         )
         for _, candidate in candidates[:MAX_NEWS_CANDIDATES]:
             try:

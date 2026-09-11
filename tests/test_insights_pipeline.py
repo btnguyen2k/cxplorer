@@ -1580,6 +1580,29 @@ def test_search_failure_is_explicit_and_never_becomes_none_found():
     assert not pipeline.can_retry(REPORT_ID)
 
 
+def test_search_scope_violation_is_excluded_and_generation_continues_with_a_gap():
+    def transform(call, value):
+        if call.task == "discover_news":
+            return ProviderError(
+                "search_scope_violation",
+                "The AI search returned a source outside the approved official hosts.",
+                usage=Usage(80, 64, 1),
+            )
+        return value
+
+    pipeline, provider, report = run_pipeline(FakeProvider(transform=transform))
+    assert report.status == "completed"
+    assert report.news_status == "none_found"
+    assert provider.calls[-1].task == "review_report"
+    warning = next(
+        gap
+        for gap in report.evidence_gaps
+        if gap.area == "official_news" and "outside" in gap.detail
+    )
+    assert "complete search result was excluded" in warning.detail
+    assert pipeline._states[REPORT_ID].executor.ledger.spent.calls == len(provider.calls)
+
+
 def test_many_source_chunks_are_ranked_before_calls_and_preserve_downstream_budget():
     configured = settings(max_model_calls=18)
     paragraphs = [
@@ -1805,6 +1828,61 @@ def test_search_uses_verified_final_hosts_not_redirecting_seed_hosts():
     assert fetcher.calls[0][2] == {"contoso.com", "www.contoso.com"}
     search = next(call for call in provider.calls if call.task == "discover_news")
     assert search.domains == ("www.contoso.com",)
+
+
+def test_verified_company_subdomains_remain_allowed_when_search_results_are_excluded():
+    homepage = "https://www.contoso.com/"
+    careers = "https://careers.contoso.com/jobs"
+    newsroom = "https://news.contoso.com/reviewer-investment"
+    publication = datetime.now(UTC).date() - timedelta(days=4)
+
+    def transform(call, value):
+        if call.task == "discover_news":
+            return ProviderError(
+                "search_scope_violation",
+                "The AI search returned a source outside the approved official hosts.",
+                usage=Usage(80, 64, 1),
+            )
+        return value
+
+    selected = InsightRequest(
+        seeds=[
+            SeedInput(url=homepage, purpose="homepage"),
+            SeedInput(url=careers, purpose="careers"),
+            SeedInput(url=newsroom, purpose="news"),
+        ],
+        audiences=["ceo"],
+    )
+    fetcher = FakeFetcher(
+        [
+            document(homepage, text="Contoso provides governed business software."),
+            document(careers, text="Contoso careers support its reviewer engineering teams."),
+            document(
+                newsroom,
+                published_at=publication,
+                text=['Contoso CEO Alex Morgan said, "We are investing in reviewer workflows."'],
+            ),
+        ]
+    )
+    _, provider, report = run_pipeline(
+        FakeProvider(transform=transform),
+        fetcher,
+        selected,
+    )
+
+    search = next(call for call in provider.calls if call.task == "discover_news")
+    assert search.domains == (
+        "careers.contoso.com",
+        "news.contoso.com",
+        "www.contoso.com",
+    )
+    assert report.status == "completed"
+    assert report.news_status == "found"
+    assert report.announcements[0].published_at == publication
+    assert any(
+        gap.area == "official_news" and "complete search result was excluded" in gap.detail
+        for gap in report.evidence_gaps
+    )
 
 
 def test_tenant_seed_never_authorizes_its_parent_or_unverified_subdomains():

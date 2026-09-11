@@ -75,6 +75,9 @@ protects against private-network/metadata access, unsafe redirects, oversized co
 unsupported pages. A matching hostname alone is not proof that page content concerns the company.
 Initial `www`/apex redirects are recognized only for public registrable-domain pairs. Later
 research is restricted to company-verified final hosts, not every supplied or redirected-from host.
+Every independently fetched and company-verified seed host is included, so a company can use
+separate hosts such as `www.contoso.com`, `careers.contoso.com`, and `news.contoso.com`; sharing
+the same parent domain alone does not authorize an unsupplied sibling host.
 
 HTTPX is the primary source client, using a Windows Chrome/Edge browser user-agent. An HTTP 403
 or a recognized browser-challenge response triggers one bounded `cloudscraper` fallback with
@@ -93,6 +96,9 @@ or opt-out. Search candidates must stay within approved official company hosts, 
 matched to the company, and have a supported publication date. Third-party news coverage,
 personal profiles, login-only content, and undated items are not substituted for official news.
 Add the company's official newsroom or investor-relations URL when it uses a separate host.
+If hosted search returns any references outside the verified exact hosts despite its domain
+filters, CXplorer discards the complete search result, records a visible limitation, and continues
+using only independently verified supplied sources.
 
 The Python pipeline collects bounded source text, extracts evidence, consolidates a company
 dossier, develops a shared strategy, generates separate CEO/CTO/CIO/CFO/CISO talk points, and
