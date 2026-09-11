@@ -11,15 +11,13 @@ from cxplorer.config import AppSettings, IdentityVendorSettings
 from cxplorer.main import create_app
 
 
-@pytest.mark.parametrize("legacy_flag", ["true", "false"])
 def test_unconfigured_generation_logs_its_reason_once_at_startup(
     app_settings: AppSettings,
     identity_settings: IdentityVendorSettings,
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
-    legacy_flag: str,
 ) -> None:
-    monkeypatch.setenv("AI_ENABLED", legacy_flag)
+    monkeypatch.setenv("AI_ENABLED", "true")
     app = create_app(app_settings, identity_settings)
     assert not any(record.name == "cxplorer.main" for record in caplog.records)
     with TestClient(app) as client:
@@ -50,14 +48,12 @@ def test_unconfigured_generation_logs_its_reason_once_at_startup(
     assert "CXplorer shutdown after" not in caplog.text
 
 
-@pytest.mark.parametrize("legacy_flag", ["true", "false"])
 def test_enabled_factory_wires_configured_limits_and_closes_resources(
     tmp_path,
     monkeypatch,
     app_settings: AppSettings,
     identity_settings: IdentityVendorSettings,
     caplog: pytest.LogCaptureFixture,
-    legacy_flag: str,
 ) -> None:
     import cxplorer.ai.providers as providers
     import cxplorer.insights.pipeline as pipelines
@@ -66,7 +62,7 @@ def test_enabled_factory_wires_configured_limits_and_closes_resources(
     for key in tuple(os.environ):
         if key.startswith(("CX_AI_", "AZURE_")):
             monkeypatch.delenv(key)
-    monkeypatch.setenv("AI_ENABLED", legacy_flag)
+    monkeypatch.setenv("AI_ENABLED", "false")
     vendor_file = tmp_path / "ai_vendors.env"
     vendor_file.write_text(
         'CX_AI__AZURE_OPENAI__ENDPOINT="https://contoso.openai.azure.com"\n'

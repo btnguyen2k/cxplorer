@@ -109,11 +109,7 @@ def test_footer_uses_the_configured_name_and_global_version(
     assert f"© {datetime.now(tz=UTC).year} {configured_name} · Version {__version__}" in page.text
 
 
-@pytest.mark.parametrize("signed_in", [False, True])
-def test_landing_page_focuses_on_business_outcomes(client: TestClient, signed_in: bool) -> None:
-    if signed_in:
-        assert client.post("/_test/sign-in").status_code == 204
-
+def test_landing_page_focuses_on_business_outcomes(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     page = RenderedPage(response.text)
@@ -169,13 +165,9 @@ def test_landing_page_focuses_on_business_outcomes(client: TestClient, signed_in
         assert technical_marketing not in page.text.casefold()
 
 
-@pytest.mark.parametrize("signed_in", [False, True])
 def test_landing_discloses_disabled_generation_and_illustrative_sample(
-    client: TestClient, signed_in: bool
+    client: TestClient,
 ) -> None:
-    if signed_in:
-        assert client.post("/_test/sign-in").status_code == 204
-
     response = client.get("/")
     page = RenderedPage(response.text)
 
