@@ -1,5 +1,11 @@
 # CXplorer release notes
 
+## 2026-09-11 - v0.1.1
+
+### Fixed/Improvements
+
+- Fix(insights): continue reports after excluding unapproved news search results
+
 ## 2026-09-10 - v0.1.0
 
 ### Added/Refactoring/Deprecation
