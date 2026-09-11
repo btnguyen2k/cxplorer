@@ -713,6 +713,8 @@ def test_fallback_timeout_or_cancellation_kills_and_reaps_its_worker(monkeypatch
         await started.wait()
         if cancel:
             task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:

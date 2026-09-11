@@ -1306,6 +1306,8 @@ def test_pdf_timeout_and_cancellation_kill_and_reap_only_owned_process(monkeypat
         await started.wait()
         if cancel:
             task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
         else:

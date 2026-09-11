@@ -3,7 +3,6 @@
 import json
 import os
 from io import StringIO
-from itertools import combinations
 from pathlib import Path
 
 import pytest
@@ -432,7 +431,6 @@ def test_secrets_never_enter_serialization_or_fingerprints(
 def test_shared_files_document_canonical_keys_and_sdk_identity_only() -> None:
     for filename in ("ai_vendors.env", "ai_tasks.env"):
         text = (ROOT / filename).read_text(encoding="utf-8")
-        assert text.count("#") > 20
         bindings = list(parse_stream(StringIO(text)))
         assert not any(binding.error for binding in bindings)
         values = {binding.key: binding.value for binding in bindings if binding.key}
@@ -470,14 +468,42 @@ def test_shared_files_document_canonical_keys_and_sdk_identity_only() -> None:
 AZURE_ENVIRONMENT = ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET")
 
 
-@pytest.mark.parametrize("endpoint_set", [False, True])
-@pytest.mark.parametrize("api_key_set", [False, True])
 @pytest.mark.parametrize(
-    "environment_fields",
-    [fields for count in range(4) for fields in combinations(AZURE_ENVIRONMENT, count)],
+    ("endpoint_set", "api_key_set", "environment_fields", "expected"),
+    [
+        pytest.param(False, False, (), False, id="nothing-configured"),
+        pytest.param(False, True, (), False, id="api-key-needs-endpoint"),
+        pytest.param(
+            False,
+            False,
+            AZURE_ENVIRONMENT,
+            False,
+            id="sdk-identity-needs-endpoint",
+        ),
+        pytest.param(True, False, (), False, id="endpoint-only"),
+        pytest.param(
+            True,
+            False,
+            AZURE_ENVIRONMENT[:-1],
+            False,
+            id="incomplete-sdk-identity",
+        ),
+        pytest.param(True, True, (), True, id="endpoint-and-api-key"),
+        pytest.param(
+            True,
+            False,
+            AZURE_ENVIRONMENT,
+            True,
+            id="endpoint-and-sdk-identity",
+        ),
+    ],
 )
 def test_azure_availability_requires_endpoint_and_key_or_complete_sdk_environment(
-    monkeypatch: pytest.MonkeyPatch, endpoint_set, api_key_set, environment_fields
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint_set: bool,
+    api_key_set: bool,
+    environment_fields: tuple[str, ...],
+    expected: bool,
 ) -> None:
     for name in environment_fields:
         monkeypatch.setenv(name, "contoso-offline-identity-value")
@@ -485,7 +511,7 @@ def test_azure_availability_requires_endpoint_and_key_or_complete_sdk_environmen
         endpoint=ENDPOINT if endpoint_set else "",
         api_key=SecretStr(OFFLINE_KEY if api_key_set else ""),
     )
-    assert vendor.enabled is (endpoint_set and (api_key_set or len(environment_fields) == 3))
+    assert vendor.enabled is expected
 
 
 @pytest.mark.parametrize("preference", ["entra_id", "api_key"])

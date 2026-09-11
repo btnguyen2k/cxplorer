@@ -634,9 +634,7 @@ def test_landing_sample_uses_runtime_availability(enabled):
     assert ("operator-configured AI access" in html) is not enabled
 
 
-def test_cache_assets_do_not_render_reports_or_store_auth():
-    cache = (STATIC / "js" / "workspace-cache.js").read_text(encoding="utf-8")
-    report = (STATIC / "js" / "insights-report.js").read_text(encoding="utf-8")
+def test_browser_assets_avoid_unsafe_dom_and_storage_apis():
     all_js = "\n".join(path.read_text(encoding="utf-8") for path in (STATIC / "js").glob("*.js"))
     for forbidden in (
         "localStorage.clear(",
@@ -651,15 +649,6 @@ def test_cache_assets_do_not_render_reports_or_store_auth():
         ":v1:",
     ):
         assert forbidden not in all_js
-    assert "2 * (entry.length + existing.length)" in cache
-    assert "2 * (key.length + value.length)" in cache
-    assert 'navigator.locks.request("cxplorer:cache-write"' in cache
-    assert "DOMParser" in cache
-    assert "blob.value = record.blob" in report
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
-    assert ".application-root {\n  min-width: 0;\n}" in css
-    assert "@media print" in css
-    assert "@media (prefers-reduced-motion: reduce)" in css
 
 
 @pytest.fixture

@@ -1347,6 +1347,40 @@ def _worker_environment() -> dict[str, str]:
     return {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR") if key in os.environ}
 
 
+async def _reap_worker(
+    process: asyncio.subprocess.Process,
+    tasks: list[asyncio.Task[Any]],
+) -> None:
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    if process.returncode is None:
+        with suppress(ProcessLookupError):
+            process.kill()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    await process.wait()
+
+
+async def _finish_worker_cleanup(
+    process: asyncio.subprocess.Process,
+    tasks: list[asyncio.Task[Any]],
+) -> None:
+    cleanup = asyncio.create_task(_reap_worker(process, tasks))
+    cancelled = False
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            # Nested request and worker deadlines may cancel cleanup more than once.
+            cancelled = True
+    try:
+        cleanup.result()
+    finally:
+        if cancelled:
+            raise asyncio.CancelledError
+
+
 async def _run_worker(
     *command: str,
     body: bytes,
@@ -1396,16 +1430,8 @@ async def _run_worker(
         _, output, returncode = await asyncio.gather(*tasks)
         return output, returncode
     finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        if process is not None and process.returncode is None:
-            with suppress(ProcessLookupError):
-                process.kill()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
         if process is not None:
-            await process.wait()
+            await _finish_worker_cleanup(process, tasks)
 
 
 async def _scrape(

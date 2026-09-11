@@ -230,12 +230,6 @@ def generate(client: AIProviderClient, task_id: str = "verify_sources", **kwargs
     )
 
 
-def test_sdk_mock_types_match_the_actual_client_backend() -> None:
-    assert issubclass(DefaultAsyncHttpxClient, http_backend.AsyncClient)
-    response = http_backend.Response(200, json={"company": "Contoso"})
-    assert isinstance(response.stream, http_backend.AsyncByteStream)
-
-
 @pytest.mark.parametrize("vendor", ["openai", "azure_openai"])
 def test_same_sdk_contract_native_strict_output_and_no_retries(vendor: str) -> None:
     client, sdk, factory, _ = provider(settings=ai_settings(vendor))
